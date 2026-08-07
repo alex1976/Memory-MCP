@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory-MCP — Memoria persistente per agenti AI</title>
+<meta name="description" content="Server MCP remoto per memorizzare, recuperare e cercare semanticamente memorie AI, organizzate in spazi multi-tenant.">
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-alt: #10141d;
+    --card: #131826;
+    --card-border: #212838;
+    --text: #e7ebf3;
+    --text-dim: #9aa4b8;
+    --text-faint: #6b7488;
+    --accent: #7c9cff;
+    --accent-2: #9b7cff;
+    --accent-3: #55d6b8;
+    --warn: #f2a65a;
+    --mono: "SFMono-Regular", "Consolas", "Liberation Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --radius: 14px;
+    --maxw: 1120px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(700px 400px at 15% -10%, rgba(124, 156, 255, 0.16), transparent 60%),
+      radial-gradient(600px 400px at 100% 0%, rgba(155, 124, 255, 0.12), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+  header.nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(11, 14, 20, 0.85);
+    backdrop-filter: saturate(140%) blur(10px);
+    border-bottom: 1px solid var(--card-border);
+  }
+  header.nav .wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    box-shadow: 0 0 14px rgba(124, 156, 255, 0.7);
+  }
+  .navlinks { display: flex; gap: 22px; font-size: 14px; }
+  .navlinks a { color: var(--text-dim); }
+  .navlinks a:hover { color: var(--text); text-decoration: none; }
+
+  section { padding: 88px 0; border-bottom: 1px solid var(--card-border); }
+  section:last-of-type { border-bottom: none; }
+
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-3);
+    margin: 0 0 14px;
+  }
+  h1, h2, h3 { letter-spacing: -0.02em; margin: 0; }
+  h1 { font-size: clamp(34px, 5vw, 54px); line-height: 1.08; }
+  h2 { font-size: clamp(24px, 3vw, 32px); margin-bottom: 12px; }
+  .lede { color: var(--text-dim); font-size: 18px; max-width: 640px; }
+  .section-head { max-width: 680px; margin-bottom: 44px; }
+
+  /* HERO */
+  .hero { padding-top: 96px; padding-bottom: 72px; }
+  .hero-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 48px; align-items: center; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 30px; }
+  .badge {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--card-border);
+    color: var(--text-dim);
+    background: var(--card);
+  }
+  .cta-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 20px; border-radius: 10px; font-weight: 600; font-size: 14px;
+    border: 1px solid transparent; text-decoration: none;
+  }
+  .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #0b0e14; }
+  .btn-primary:hover { text-decoration: none; filter: brightness(1.08); }
+  .btn-ghost { border-color: var(--card-border); color: var(--text); background: var(--card); }
+  .btn-ghost:hover { text-decoration: none; border-color: var(--accent); }
+
+  .hero-panel {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 22px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    box-shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
+  }
+  .hero-panel .title-bar { display: flex; gap: 6px; margin-bottom: 14px; }
+  .hero-panel .title-bar span { width: 10px; height: 10px; border-radius: 50%; background: #333c4d; }
+  .hero-panel pre { margin: 0; white-space: pre-wrap; }
+  .tok-key { color: var(--accent-3); }
+  .tok-str { color: var(--accent); }
+  .tok-com { color: var(--text-faint); }
+
+  /* FEATURE CARDS */
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .grid2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { color: var(--text-dim); font-size: 14.5px; margin: 0; }
+  .card .icon {
+    width: 38px; height: 38px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(124, 156, 255, 0.12);
+    color: var(--accent);
+    margin-bottom: 16px;
+    font-size: 18px;
+  }
+
+  /* ARCHITECTURE */
+  .arch-stack { display: flex; flex-direction: column; gap: 0; max-width: 760px; margin: 0 auto; }
+  .arch-layer {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 18px 22px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .arch-layer .name { font-weight: 700; font-size: 15px; }
+  .arch-layer .desc { color: var(--text-dim); font-size: 13.5px; }
+  .arch-layer .tag {
+    font-family: var(--mono); font-size: 11px; color: var(--accent-3);
+    border: 1px solid rgba(85, 214, 184, 0.35); border-radius: 999px; padding: 3px 9px;
+    white-space: nowrap;
+  }
+  .arch-arrow { text-align: center; color: var(--text-faint); font-size: 13px; padding: 6px 0; font-family: var(--mono); }
+  .arch-layer.api { border-color: rgba(124, 156, 255, 0.5); }
+  .arch-layer.domain { border-color: rgba(155, 124, 255, 0.5); }
+
+  .arch-note {
+    margin-top: 28px;
+    background: rgba(242, 166, 90, 0.08);
+    border: 1px solid rgba(242, 166, 90, 0.3);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+  }
+  .arch-note strong { color: var(--warn); }
+
+  /* TOOLS */
+  .tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .tool-card {
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  .tool-card .head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
+  .tool-name { font-family: var(--mono); font-weight: 700; font-size: 14.5px; color: var(--accent); }
+  .access {
+    font-size: 11px; font-family: var(--mono); padding: 2px 8px; border-radius: 999px;
+    white-space: nowrap;
+  }
+  .access.read { background: rgba(85, 214, 184, 0.12); color: var(--accent-3); }
+  .access.readwrite { background: rgba(242, 166, 90, 0.14); color: var(--warn); }
+  .access.none { background: rgba(154, 164, 184, 0.12); color: var(--text-dim); }
+  .tool-card p { margin: 0; color: var(--text-dim); font-size: 13.5px; }
+
+  /* STACK */
+  .stack-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .stack-table th, .stack-table td { text-align: left; padding: 12px 10px; border-bottom: 1px solid var(--card-border); }
+  .stack-table th { color: var(--text-faint); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .stack-table td:first-child { color: var(--text-dim); white-space: nowrap; }
+  .stack-table code { font-family: var(--mono); font-size: 13px; color: var(--text); background: var(--bg-alt); padding: 2px 6px; border-radius: 6px; }
+
+  /* PHASES */
+  .phases { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .phase-card { border-radius: var(--radius); padding: 24px; border: 1px solid var(--card-border); }
+  .phase-card.done { background: linear-gradient(180deg, rgba(85, 214, 184, 0.06), transparent); border-color: rgba(85, 214, 184, 0.35); }
+  .phase-card.next { background: var(--card); }
+  .phase-badge { display: inline-block; font-size: 11px; font-family: var(--mono); padding: 3px 10px; border-radius: 999px; margin-bottom: 14px; }
+  .phase-badge.done { background: rgba(85, 214, 184, 0.15); color: var(--accent-3); }
+  .phase-badge.next { background: rgba(154, 164, 184, 0.15); color: var(--text-dim); }
+  ul.checklist { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  ul.checklist li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--text-dim); }
+  ul.checklist li .mark { flex-shrink: 0; margin-top: 2px; font-family: var(--mono); font-size: 12px; }
+  ul.checklist.done li .mark { color: var(--accent-3); }
+  ul.checklist.next li .mark { color: var(--text-faint); }
+
+  /* SETUP */
+  .code-block {
+    background: var(--bg-alt);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    font-family: var(--mono);
+    font-size: 13.5px;
+    color: var(--text-dim);
+    overflow-x: auto;
+  }
+  .code-block .l { display: block; white-space: pre; }
+  .code-block .prompt { color: var(--accent-3); }
+  .code-block .comment { color: var(--text-faint); }
+  .steps { display: flex; flex-direction: column; gap: 22px; margin-top: 28px; }
+  .step { display: grid; grid-template-columns: 34px 1fr; gap: 16px; }
+  .step .num {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: var(--card); border: 1px solid var(--card-border);
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--accent);
+  }
+  .step h4 { margin: 4px 0 8px; font-size: 15px; }
+
+  footer { padding: 40px 0 60px; text-align: center; color: var(--text-faint); font-size: 13px; }
+  footer a { color: var(--text-dim); }
+
+  @media (max-width: 860px) {
+    .hero-grid { grid-template-columns: 1fr; }
+    .grid3, .grid2, .phases { grid-template-columns: 1fr; }
+    .arch-layer { flex-direction: column; align-items: flex-start; gap: 6px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> Memory-MCP</div>
+    <nav class="navlinks">
+      <a href="#architettura">Architettura</a>
+      <a href="#tool">Tool</a>
+      <a href="#stack">Stack</a>
+      <a href="#fasi">Fasi</a>
+      <a href="#setup">Setup</a>
+      <a href="README.md">README</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Model Context Protocol · Server remoto</p>
+      <h1>Memoria persistente<br>per i tuoi agenti AI.</h1>
+      <p class="lede">
+        Memory-MCP salva, recupera e cerca semanticamente le "memorie" dei tuoi agenti AI, organizzate in
+        spazi multi-tenant isolati e protetti da API Key — così il contesto sopravvive tra una
+        conversazione e l'altra, senza sprecare token.
+      </p>
+      <div class="badges">
+        <span class="badge">.NET 10</span>
+        <span class="badge">ASP.NET Core</span>
+        <span class="badge">PostgreSQL + EF Core</span>
+        <span class="badge">OpenAI / Azure OpenAI</span>
+        <span class="badge">Clean Architecture</span>
+      </div>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="#setup">Avvia in locale</a>
+        <a class="btn btn-ghost" href="CLAUDE.md">Specifica funzionale</a>
+      </div>
+    </div>
+    <div class="hero-panel">
+      <div class="title-bar"><span></span><span></span><span></span></div>
+      <pre><span class="tok-com"># chiama un tool MCP con la tua API Key</span>
+POST /mcp
+X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
+
+<span class="tok-key">tool</span>: <span class="tok-str">"search_memory"</span>
+<span class="tok-key">query</span>: <span class="tok-str">"preferenze utente"</span>
+<span class="tok-key">includeProfile</span>: <span class="tok-str">true</span>
+
+<span class="tok-com"># → memorie pertinenti, ordinate per</span>
+<span class="tok-com">#   similarità semantica</span></pre>
+    </div>
+  </div>
+</section>
+
+<section id="architettura">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Architettura</p>
+      <h2>Quattro livelli, una sola direzione di dipendenza</h2>
+      <p class="lede">
+        Clean Architecture: Domain non conosce nulla del resto, Application definisce i casi d'uso tramite
+        interfacce, Infrastructure li implementa con EF Core e i provider di embedding, Api espone tutto
+        via Model Context Protocol.
+      </p>
+    </div>
+
+    <div class="arch-stack">
+      <div class="arch-layer api">
+        <div>
+          <div class="name">MemoryMcp.Api</div>
+          <div class="desc">Host ASP.NET Core · autenticazione API Key · i 7 tool MCP (thin adapter)</div>
+        </div>
+        <span class="tag">ModelContextProtocol.AspNetCore</span>
+      </div>
+      <div class="arch-arrow">↓ dipende da</div>
+      <div class="arch-layer">
+        <div>
+          <div class="name">MemoryMcp.Infrastructure</div>
+          <div class="desc">EF Core · repository · provider di embedding (OpenAI / Azure OpenAI)</div>
+        </div>
+        <span class="tag">Npgsql · EF Core 10</span>
+      </div>
+      <div class="arch-arrow">↓ dipende da</div>
+      <div class="arch-layer">
+        <div>
+          <div class="name">MemoryMcp.Application</div>
+          <div class="desc">Casi d'uso: interfacce + servizi (Memory, Document, Space) · DTO</div>
+        </div>
+        <span class="tag">nessuna dipendenza infra</span>
+      </div>
+      <div class="arch-arrow">↓ dipende da</div>
+      <div class="arch-layer domain">
+        <div>
+          <div class="name">MemoryMcp.Domain</div>
+          <div class="desc">Entità pure: Space, ApiKey, ApiKeySpaceGrant, Document, Memory</div>
+        </div>
+        <span class="tag">zero dipendenze esterne</span>
+      </div>
+    </div>
+
+    <div class="grid3" style="margin-top:40px;">
+      <div class="card">
+        <div class="icon">◆</div>
+        <h3>Multi-tenant per spazio</h3>
+        <p>Ogni API Key ha un permesso Read/ReadWrite per spazio e uno spazio "attivo" di default. Isolamento garantito a livello di query.</p>
+      </div>
+      <div class="card">
+        <div class="icon">◇</div>
+        <h3>Ricerca semantica</h3>
+        <p>Similarità coseno tra embedding calcolata in-app, su una colonna Postgres <code>real[]</code> nativa — nessuna estensione richiesta.</p>
+      </div>
+      <div class="card">
+        <div class="icon">○</div>
+        <h3>Embedding pluggable</h3>
+        <p><code>IEmbeddingProvider</code> astrae OpenAI e Azure OpenAI dietro lo stesso <code>EmbeddingClient</code>, risolto lazy per non bloccare i tool che non ne hanno bisogno.</p>
+      </div>
+    </div>
+
+    <div class="arch-note">
+      <strong>Nota tecnica:</strong> la specifica prevedeva PostgreSQL + <code>pgvector</code> con indice HNSW.
+      In questo ambiente Docker è bloccato da policy aziendale e il Postgres locale non ha l'estensione
+      installata (né è installabile senza permessi di amministratore), quindi la ricerca è stata
+      implementata senza estensioni esterne. Funziona correttamente, ma non scala quanto un indice
+      vettoriale nativo su volumi molto grandi.
+    </div>
+  </div>
+</section>
+
+<section id="tool">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Tool MCP</p>
+      <h2>7 tool, coerenti con la specifica</h2>
+      <p class="lede">Ogni tool è un thin adapter: risolve il contesto di accesso, chiama il servizio applicativo, formatta l'output.</p>
+    </div>
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">search_memory</span><span class="access read">Read</span></div>
+        <p>Ricerca semantica tra le memorie di uno spazio, con profilo stabile/recente opzionale.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">add_memory</span><span class="access readwrite">ReadWrite</span></div>
+        <p>Salva (<code>save</code>) o rimuove (<code>forget</code>) una memoria in base al contenuto.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">listMemories</span><span class="access read">Read</span></div>
+        <p>Elenco paginato delle memorie estratte in uno spazio.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">listDocuments</span><span class="access read">Read</span></div>
+        <p>Elenco paginato dei documenti sorgente di uno spazio.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">getDocument</span><span class="access read">Read</span></div>
+        <p>Metadati e contenuto disponibile di un singolo documento.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">listSpaces</span><span class="access none">—</span></div>
+        <p>Spazi accessibili dalla API Key corrente, con livello di accesso e conteggi.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">whoAmI</span><span class="access none">—</span></div>
+        <p>Identità corrente, spazi accessibili, spazio attivo.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="stack">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Stack tecnologico</p>
+      <h2>Cosa c'è sotto il cofano</h2>
+    </div>
+    <table class="stack-table">
+      <thead><tr><th>Livello</th><th>Tecnologia</th></tr></thead>
+      <tbody>
+        <tr><td>Runtime</td><td><code>.NET 10</code>, pinnato in <code>global.json</code></td></tr>
+        <tr><td>Server MCP</td><td><code>ModelContextProtocol</code> / <code>ModelContextProtocol.AspNetCore</code> 2.1.0</td></tr>
+        <tr><td>Web host</td><td>ASP.NET Core Minimal API</td></tr>
+        <tr><td>Persistenza</td><td>PostgreSQL + EF Core 10 (<code>Npgsql.EntityFrameworkCore.PostgreSQL</code>)</td></tr>
+        <tr><td>Embedding</td><td><code>OpenAI</code> / <code>Azure.AI.OpenAI</code>, stesso <code>EmbeddingClient</code></td></tr>
+        <tr><td>Autenticazione</td><td>Scheme custom basato su API Key (hash SHA-256)</td></tr>
+        <tr><td>Test</td><td>xUnit · NSubstitute · AwesomeAssertions · <code>Microsoft.AspNetCore.Mvc.Testing</code></td></tr>
+        <tr><td>Container</td><td>Dockerfile multi-stage + docker-compose</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="fasi">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Roadmap</p>
+      <h2>Fasi del progetto</h2>
+    </div>
+    <div class="phases">
+      <div class="phase-card done">
+        <span class="phase-badge done">Fase 1 — Completata</span>
+        <h3>Tool core via MCP standard</h3>
+        <ul class="checklist done">
+          <li><span class="mark">✓</span> Entità Domain e modello dati relazionale</li>
+          <li><span class="mark">✓</span> Persistenza EF Core + migration iniziale</li>
+          <li><span class="mark">✓</span> Autenticazione API Key con permessi per-spazio</li>
+          <li><span class="mark">✓</span> Provider di embedding pluggable (OpenAI / Azure OpenAI)</li>
+          <li><span class="mark">✓</span> I 7 tool MCP, esposti su <code>/mcp</code></li>
+          <li><span class="mark">✓</span> Suite di test unit + integration + end-to-end</li>
+        </ul>
+      </div>
+      <div class="phase-card next">
+        <span class="phase-badge next">Fase 2 — Non implementata</span>
+        <h3>Resource, prompt e widget interattivi</h3>
+        <ul class="checklist next">
+          <li><span class="mark">○</span> Resource MCP: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code></li>
+          <li><span class="mark">○</span> Prompt MCP: <code>context</code></li>
+          <li><span class="mark">○</span> Widget MCP Apps: select-space, guided-save, upload-file, memory-graph</li>
+          <li><span class="mark">○</span> Reintroduzione di pgvector/HNSW se l'estensione diventa disponibile</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="setup">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">Getting started</p>
+      <h2>Setup in locale in 4 passi</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <div>
+          <h4>Configura la connection string</h4>
+          <div class="code-block"><span class="l"><span class="comment"># src/MemoryMcp.Api/appsettings.Development.json (non versionato)</span></span><span class="l">{ "ConnectionStrings": { "Default": "Host=localhost;Port=5432;Username=...;Password=...;Database=..." } }</span></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <div>
+          <h4>Applica le migration</h4>
+          <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet ef database update --project src/MemoryMcp.Infrastructure --startup-project src/MemoryMcp.Api</span></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <div>
+          <h4>Crea uno spazio e una API Key di test</h4>
+          <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api -- --seed</span><span class="l"><span class="comment"># Seeded space 'default' with API key: mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span></span></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <div>
+          <h4>Avvia il server</h4>
+          <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api</span><span class="l"><span class="comment"># http://localhost:5004/mcp — richiede header X-Api-Key</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Memory-MCP · consulta <a href="README.md">README.md</a> per i dettagli completi e <a href="CLAUDE.md">CLAUDE.md</a> per la specifica funzionale.
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,8 @@
+bin/
+obj/
+.vs/
+*.user
+
+# Per-developer local overrides (may contain real connection strings/secrets)
+appsettings.Development.json
+appsettings.*.local.json

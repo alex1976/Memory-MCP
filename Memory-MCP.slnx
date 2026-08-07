@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/MemoryMcp.Api/MemoryMcp.Api.csproj" />
+    <Project Path="src/MemoryMcp.Application/MemoryMcp.Application.csproj" />
+    <Project Path="src/MemoryMcp.Domain/MemoryMcp.Domain.csproj" />
+    <Project Path="src/MemoryMcp.Infrastructure/MemoryMcp.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MemoryMcp.Api.Tests/MemoryMcp.Api.Tests.csproj" />
+    <Project Path="tests/MemoryMcp.Application.Tests/MemoryMcp.Application.Tests.csproj" />
+    <Project Path="tests/MemoryMcp.Infrastructure.Tests/MemoryMcp.Infrastructure.Tests.csproj" />
+  </Folder>
+</Solution>

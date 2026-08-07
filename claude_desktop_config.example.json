@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "memory-mcp": {
+      "url": "http://localhost:5004/mcp",
+      "headers": {
+        "X-Api-Key": "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  }
+}
