@@ -1,154 +1,154 @@
 # Memory-MCP
 
-Server MCP (Model Context Protocol) remoto per la memorizzazione, il recupero e la ricerca semantica di
-"memorie" da parte di agenti AI, organizzate in **spazi** (spaces) multi-tenant e protette da API Key.
+Remote MCP (Model Context Protocol) server for storing, retrieving, and semantically searching
+"memories" on behalf of AI agents, organized into multi-tenant **spaces** and protected by API Key.
 
-Specifica funzionale completa: [CLAUDE.md](CLAUDE.md).
+Full functional specification: [CLAUDE.md](CLAUDE.md).
 
-## Indice
+## Table of contents
 
-- [Architettura](#architettura)
-- [Tecnologia](#tecnologia)
-- [Modello dati](#modello-dati)
-- [Tool MCP disponibili](#tool-mcp-disponibili)
-- [Fasi del progetto](#fasi-del-progetto)
-- [Setup e avvio](#setup-e-avvio)
-- [Test](#test)
+- [Architecture](#architecture)
+- [Technology](#technology)
+- [Data model](#data-model)
+- [Available MCP tools](#available-mcp-tools)
+- [Project phases](#project-phases)
+- [Setup and startup](#setup-and-startup)
+- [Tests](#tests)
 - [Docker](#docker)
 
-## Architettura
+## Architecture
 
-Clean Architecture a 4 livelli, con dipendenze a una sola direzione (`Api` → `Infrastructure`/`Application` → `Domain`):
+4-layer Clean Architecture, with dependencies flowing in a single direction (`Api` → `Infrastructure`/`Application` → `Domain`):
 
 ```
 Memory-MCP/
 ├── src/
-│   ├── MemoryMcp.Domain/          # Entità pure (Space, ApiKey, ApiKeySpaceGrant, Document, Memory)
-│   │                              # Nessuna dipendenza da EF/HTTP/librerie esterne.
-│   ├── MemoryMcp.Application/     # Casi d'uso: interfacce (IMemoryService, IDocumentService,
-│   │                              # ISpaceService, IEmbeddingProvider, repository, ICurrentAccessContext)
-│   │                              # + implementazioni dei servizi applicativi + DTO.
-│   ├── MemoryMcp.Infrastructure/   # EF Core (MemoryDbContext, migrations, repository), provider
-│   │                              # di embedding (OpenAI/Azure OpenAI).
-│   └── MemoryMcp.Api/             # Host ASP.NET Core: hosting MCP, autenticazione API Key,
-│                                  # i 7 tool MCP (thin adapter senza logica di business).
+│   ├── MemoryMcp.Domain/          # Pure entities (Space, ApiKey, ApiKeySpaceGrant, Document, Memory)
+│   │                              # No dependency on EF/HTTP/external libraries.
+│   ├── MemoryMcp.Application/     # Use cases: interfaces (IMemoryService, IDocumentService,
+│   │                              # ISpaceService, IEmbeddingProvider, repositories, ICurrentAccessContext)
+│   │                              # + application service implementations + DTOs.
+│   ├── MemoryMcp.Infrastructure/   # EF Core (MemoryDbContext, migrations, repositories), embedding
+│   │                              # provider (OpenAI/Azure OpenAI).
+│   └── MemoryMcp.Api/             # ASP.NET Core host: MCP hosting, API Key authentication,
+│                                  # the 7 MCP tools (thin adapters with no business logic).
 └── tests/
-    ├── MemoryMcp.Application.Tests/    # Unit test dei servizi applicativi (mock/NSubstitute)
-    ├── MemoryMcp.Infrastructure.Tests/ # Integration test dei repository contro un Postgres reale
-    └── MemoryMcp.Api.Tests/            # Test end-to-end sui 7 tool via client MCP + WebApplicationFactory
+    ├── MemoryMcp.Application.Tests/    # Unit tests for the application services (mock/NSubstitute)
+    ├── MemoryMcp.Infrastructure.Tests/ # Integration tests for the repositories against a real Postgres
+    └── MemoryMcp.Api.Tests/            # End-to-end tests for the 7 tools via an MCP client + WebApplicationFactory
 ```
 
-**Perché Clean Architecture e non Vertical Slice**: tutti i tool condividono lo stesso modello dati
-(Space/ApiKey/Memory/Document) e le stesse regole di autorizzazione per-spazio; isolare la persistenza EF
-e il provider di embedding dietro interfacce in `Application` permette di estendere il progetto (resource,
-prompt, widget MCP Apps — Fase 2) senza toccare `Domain`/`Application`.
+**Why Clean Architecture and not Vertical Slice**: all tools share the same data model
+(Space/ApiKey/Memory/Document) and the same per-space authorization rules; isolating EF persistence
+and the embedding provider behind interfaces in `Application` allows the project to be extended (resources,
+prompts, MCP Apps widgets — Phase 2) without touching `Domain`/`Application`.
 
-Ogni classe in `Api/Tools` è un **thin adapter**: risolve il contesto di accesso (`ICurrentAccessContext`),
-chiama il servizio applicativo, formatta l'output — nessuna logica di business nel livello Api.
+Every class in `Api/Tools` is a **thin adapter**: it resolves the access context (`ICurrentAccessContext`),
+calls the application service, and formats the output — no business logic in the Api layer.
 
-### Autenticazione e multi-tenancy
+### Authentication and multi-tenancy
 
-- Ogni **API Key** è associata a uno o più **spazi**, con un livello di accesso (`Read` o `ReadWrite`) per
-  spazio e uno spazio marcato come "attivo" (`IsDefault`).
-- `ApiKeyAuthenticationHandler` (`src/MemoryMcp.Api/Auth`) legge la chiave dall'header `X-Api-Key` (o
-  `Authorization: Bearer <key>`), la valida contro il database (hash SHA-256, mai la chiave in chiaro) e
-  popola `CurrentAccessContext`, uno scoped service iniettato nei servizi applicativi.
-- Il parametro `containerTag` dei tool corrisponde alla colonna `spaces.key`; se omesso, viene usato lo
-  spazio "attivo" della chiave corrente.
-- Errori di autorizzazione/spazio non trovato vengono tradotti in risultati di tool MCP con `isError=true`
-  (mai eccezioni non gestite o 500).
+- Every **API Key** is associated with one or more **spaces**, with an access level (`Read` or `ReadWrite`) per
+  space, and one space marked as "active" (`IsDefault`).
+- `ApiKeyAuthenticationHandler` (`src/MemoryMcp.Api/Auth`) reads the key from the `X-Api-Key` header (or
+  `Authorization: Bearer <key>`), validates it against the database (SHA-256 hash, never the plaintext key), and
+  populates `CurrentAccessContext`, a scoped service injected into the application services.
+- The tools' `containerTag` parameter corresponds to the `spaces.key` column; if omitted, the current
+  key's "active" space is used.
+- Authorization/space-not-found errors are translated into MCP tool results with `isError=true`
+  (never unhandled exceptions or 500s).
 
-### Ricerca semantica
+### Semantic search
 
-`IEmbeddingProvider` è pluggable (OpenAI o Azure OpenAI, stesso client `EmbeddingClient` sotto le due
-implementazioni). Gli embedding sono salvati come colonna Postgres nativa `real[]` (via Npgsql) e la
-similarità coseno viene calcolata **in-app** in `MemoryRepository.SearchAsync`.
+`IEmbeddingProvider` is pluggable (OpenAI or Azure OpenAI, the same `EmbeddingClient` under both
+implementations). Embeddings are stored as a native Postgres `real[]` column (via Npgsql), and cosine
+similarity is computed **in-app** in `MemoryRepository.SearchAsync`.
 
-Oltre alla ricerca semantica, `search_memory` supporta anche la ricerca letterale per parola chiave
-(`keyword`, match case-insensitive via `ILIKE` in `MemoryRepository.SearchByKeywordAsync`, senza generare
-embedding) e il filtro/elenco per categoria (`category`, colonna opzionale su `memories`, assegnabile in
-`add_memory`). I tre criteri sono combinabili: `query`/`keyword` possono essere ulteriormente ristretti da
-`category`; se si passa solo `category`, `MemoryRepository.ListByCategoryAsync` elenca le memorie di quella
-categoria ordinate per data di creazione. Va fornito almeno uno tra `query`, `keyword` e `category`.
+Besides semantic search, `search_memory` also supports literal keyword search
+(`keyword`, case-insensitive match via `ILIKE` in `MemoryRepository.SearchByKeywordAsync`, without generating
+an embedding) and filtering/listing by category (`category`, an optional column on `memories`, assignable in
+`add_memory`). The three criteria can be combined: `query`/`keyword` can be further restricted by
+`category`; if only `category` is given, `MemoryRepository.ListByCategoryAsync` lists the memories in that
+category ordered by creation date. At least one of `query`, `keyword`, and `category` must be provided.
 
-> Nota: la specifica originale prevedeva PostgreSQL + estensione `pgvector` con indice HNSW. In questo
-> ambiente Docker Desktop è bloccato da policy aziendale e il Postgres locale disponibile non ha
-> `pgvector` installato (né è possibile installarlo senza permessi di amministratore locale), quindi la
-> ricerca è stata implementata senza l'estensione. Funziona correttamente ma non scala quanto un indice
-> vettoriale nativo su volumi molto grandi — se in futuro `pgvector` diventa disponibile, la migrazione a
-> un indice HNSW richiede di rivedere `MemoryConfiguration` e `MemoryRepository.SearchAsync`.
+> Note: the original specification called for PostgreSQL + the `pgvector` extension with an HNSW index. In this
+> environment Docker Desktop is blocked by company policy and the available local Postgres does not have
+> `pgvector` installed (nor can it be installed without local admin permissions), so the
+> search was implemented without the extension. It works correctly but doesn't scale as well as a native
+> vector index on very large volumes — if `pgvector` becomes available in the future, migrating to
+> an HNSW index requires revisiting `MemoryConfiguration` and `MemoryRepository.SearchAsync`.
 
-## Tecnologia
+## Technology
 
-| Livello | Tecnologia |
+| Layer | Technology |
 | --- | --- |
-| Runtime | .NET 10 (pinnato in [global.json](global.json)) |
-| Server MCP | `ModelContextProtocol` / `ModelContextProtocol.AspNetCore` 2.1.0 |
+| Runtime | .NET 10 (pinned in [global.json](global.json)) |
+| MCP Server | `ModelContextProtocol` / `ModelContextProtocol.AspNetCore` 2.1.0 |
 | Web host | ASP.NET Core Minimal API |
-| Persistenza | PostgreSQL + EF Core 10 (`Npgsql.EntityFrameworkCore.PostgreSQL`) |
-| Embedding | `OpenAI` / `Azure.AI.OpenAI` (stesso `EmbeddingClient`, selezionato via configurazione) |
-| Autenticazione | Scheme custom `AuthenticationHandler<T>` basato su API Key (hash SHA-256) |
-| Test | xUnit, NSubstitute, AwesomeAssertions (fork MIT di FluentAssertions), `Microsoft.AspNetCore.Mvc.Testing` |
-| Container | Dockerfile multi-stage + docker-compose (per ambienti dove Docker è disponibile) |
+| Persistence | PostgreSQL + EF Core 10 (`Npgsql.EntityFrameworkCore.PostgreSQL`) |
+| Embedding | `OpenAI` / `Azure.AI.OpenAI` (same `EmbeddingClient`, selected via configuration) |
+| Authentication | Custom `AuthenticationHandler<T>` scheme based on API Key (SHA-256 hash) |
+| Tests | xUnit, NSubstitute, AwesomeAssertions (MIT fork of FluentAssertions), `Microsoft.AspNetCore.Mvc.Testing` |
+| Container | Multi-stage Dockerfile + docker-compose (for environments where Docker is available) |
 
-## Modello dati
+## Data model
 
-| Tabella | Descrizione |
+| Table | Description |
 | --- | --- |
-| `spaces` | Spazio logico (`key` univoca = `containerTag`, `name`, `description`) |
-| `api_keys` | Chiave API (solo hash salvato, mai il valore in chiaro) |
-| `api_key_space_grants` | Permesso `Read`/`ReadWrite` di una API Key su uno spazio + flag "spazio attivo" |
-| `documents` | Documento sorgente (titolo, tipo, stato, summary, contenuto raw) |
-| `memories` | Memoria estratta (testo, categoria opzionale, embedding `real[]`, versione, `is_active` per soft-delete/"forget") |
+| `spaces` | Logical space (`key` unique = `containerTag`, `name`, `description`) |
+| `api_keys` | API key (only the hash is stored, never the plaintext value) |
+| `api_key_space_grants` | `Read`/`ReadWrite` permission of an API Key on a space + "active space" flag |
+| `documents` | Source document (title, type, status, summary, raw content) |
+| `memories` | Extracted memory (text, optional category, `real[]` embedding, version, `is_active` for soft-delete/"forget") |
 
-## Tool MCP disponibili
+## Available MCP tools
 
-Tutti i 7 tool richiesti dalla specifica sono implementati in `src/MemoryMcp.Api/Tools`:
+All 7 tools required by the specification are implemented in `src/MemoryMcp.Api/Tools`:
 
-| Tool | File | Accesso richiesto | Descrizione |
+| Tool | File | Access required | Description |
 | --- | --- | --- | --- |
-| `search_memory` | `MemoryTools.cs` | Read | Ricerca tra le memorie di uno spazio per similarità semantica (`query`), parola chiave letterale (`keyword`) e/o categoria (`category`), con profilo opzionale |
-| `add_memory` | `MemoryTools.cs` | ReadWrite | Salva (`action=save`, con `category` opzionale) o rimuove (`action=forget`) una memoria |
-| `listDocuments` | `DocumentTools.cs` | Read | Elenco paginato dei documenti sorgente di uno spazio |
-| `getDocument` | `DocumentTools.cs` | Read | Metadati e contenuto di un documento |
-| `listMemories` | `MemoryTools.cs` | Read | Elenco paginato delle memorie estratte |
-| `listSpaces` | `AccessTools.cs` | — | Spazi accessibili dalla API Key corrente, con conteggi |
-| `whoAmI` | `AccessTools.cs` | — | Identità corrente, spazi accessibili, spazio attivo |
+| `search_memory` | `MemoryTools.cs` | Read | Searches a space's memories by semantic similarity (`query`), literal keyword (`keyword`), and/or category (`category`), with optional profile |
+| `add_memory` | `MemoryTools.cs` | ReadWrite | Saves (`action=save`, with optional `category`) or removes (`action=forget`) a memory |
+| `listDocuments` | `DocumentTools.cs` | Read | Paginated list of a space's source documents |
+| `getDocument` | `DocumentTools.cs` | Read | Metadata and content of a document |
+| `listMemories` | `MemoryTools.cs` | Read | Paginated list of extracted memories |
+| `listSpaces` | `AccessTools.cs` | — | Spaces accessible with the current API Key, with counts |
+| `whoAmI` | `AccessTools.cs` | — | Current identity, accessible spaces, active space |
 
-## Fasi del progetto
+## Project phases
 
-### Fase 1 — Completata
+### Phase 1 — Completed
 
-- [x] Le entità Domain e il modello dati relazionale (Space, ApiKey, ApiKeySpaceGrant, Document, Memory)
-- [x] Persistenza EF Core + migration iniziale
-- [x] Autenticazione via API Key con permessi per-spazio
-- [x] `IEmbeddingProvider` pluggable (OpenAI / Azure OpenAI)
-- [x] I 7 tool MCP core, esposti via `ModelContextProtocol.AspNetCore` su endpoint HTTP `/mcp`
-- [x] Suite di test (unit, integration, end-to-end)
+- [x] Domain entities and the relational data model (Space, ApiKey, ApiKeySpaceGrant, Document, Memory)
+- [x] EF Core persistence + initial migration
+- [x] API Key authentication with per-space permissions
+- [x] Pluggable `IEmbeddingProvider` (OpenAI / Azure OpenAI)
+- [x] The 7 core MCP tools, exposed via `ModelContextProtocol.AspNetCore` on the `/mcp` HTTP endpoint
+- [x] Test suite (unit, integration, end-to-end)
 
-### Fase 2 — Non implementata (per non bloccare l'estensibilità futura)
+### Phase 2 — Not implemented (to avoid blocking future extensibility)
 
-- [ ] Resource MCP: `memory-mcp://profile`, `memory-mcp://spaces`
-- [ ] Prompt MCP: `context`
-- [ ] Widget interattivi MCP Apps: `select-space`, `guided-save`, `upload-file`, `memory-graph`
-      (richiedono il package `ModelContextProtocol.Extensions.Apps` e UI iframe-based)
-- [ ] Reintroduzione di `Qdrant`con indice HNSW nativo come vector DB
+- [ ] MCP Resources: `memory-mcp://profile`, `memory-mcp://spaces`
+- [ ] MCP Prompt: `context`
+- [ ] Interactive MCP Apps widgets: `select-space`, `guided-save`, `upload-file`, `memory-graph`
+      (require the `ModelContextProtocol.Extensions.Apps` package and iframe-based UI)
+- [ ] Reintroducing `Qdrant` with a native HNSW index as the vector DB
 
-Questi elementi si aggiungono come nuove classi (`[McpServerResourceType]`, `[McpServerPromptType]`) nel
-progetto `Api`, riusando i servizi `Application` esistenti — senza modifiche a `Domain`/`Application`.
+These items are added as new classes (`[McpServerResourceType]`, `[McpServerPromptType]`) in the
+`Api` project, reusing the existing `Application` services — without changes to `Domain`/`Application`.
 
-## Setup e avvio
+## Setup and startup
 
-### Prerequisiti
+### Prerequisites
 
-- [.NET SDK 10](https://dotnet.microsoft.com/download) (versione pinnata in [global.json](global.json))
-- Un'istanza PostgreSQL raggiungibile (locale o remota). **Non serve l'estensione `pgvector`.**
-- (Opzionale) una API Key OpenAI o Azure OpenAI, necessaria solo per i tool `add_memory` e `search_memory`
+- [.NET SDK 10](https://dotnet.microsoft.com/download) (version pinned in [global.json](global.json))
+- A reachable PostgreSQL instance (local or remote). **The `pgvector` extension is not required.**
+- (Optional) an OpenAI or Azure OpenAI API Key, needed only for the `add_memory` and `search_memory` tools
 
-### 1. Configurare la connection string
+### 1. Configure the connection string
 
-Crea/aggiorna `src/MemoryMcp.Api/appsettings.Development.json` (file **non versionato**, vedi
-[.gitignore](.gitignore)) con la connection string del tuo Postgres:
+Create/update `src/MemoryMcp.Api/appsettings.Development.json` (file **not versioned**, see
+[.gitignore](.gitignore)) with your Postgres connection string:
 
 ```json
 {
@@ -158,19 +158,19 @@ Crea/aggiorna `src/MemoryMcp.Api/appsettings.Development.json` (file **non versi
 }
 ```
 
-In alternativa, puoi impostare la variabile d'ambiente `ConnectionStrings__Default` senza toccare i file
-di configurazione.
+Alternatively, you can set the `ConnectionStrings__Default` environment variable without touching the
+configuration files.
 
-### 2. Applicare le migration
+### 2. Apply migrations
 
 ```bash
-dotnet tool restore # se non hai già dotnet-ef installato: dotnet tool install --global dotnet-ef
+dotnet tool restore # if you don't already have dotnet-ef installed: dotnet tool install --global dotnet-ef
 dotnet ef database update --project src/MemoryMcp.Infrastructure --startup-project src/MemoryMcp.Api
 ```
 
-### 3. (Opzionale) Configurare l'embedding provider
+### 3. (Optional) Configure the embedding provider
 
-Per usare `add_memory`/`search_memory`, in `appsettings.Development.json`:
+To use `add_memory`/`search_memory`, in `appsettings.Development.json`:
 
 ```json
 {
@@ -182,40 +182,40 @@ Per usare `add_memory`/`search_memory`, in `appsettings.Development.json`:
 }
 ```
 
-Per Azure OpenAI: `"Provider": "AzureOpenAI"`, `"Endpoint": "https://<resource>.openai.azure.com"`,
-`"Model"` = nome della deployment. Senza queste impostazioni il server parte comunque e tutti gli altri
-tool funzionano normalmente: solo `add_memory`/`search_memory` restituiranno un errore di tool.
+For Azure OpenAI: `"Provider": "AzureOpenAI"`, `"Endpoint": "https://<resource>.openai.azure.com"`,
+`"Model"` = deployment name. Without these settings the server still starts and all other
+tools work normally: only `add_memory`/`search_memory` will return a tool error.
 
-### 4. Creare uno spazio e una API Key di test
+### 4. Create a test space and API Key
 
-Non esiste ancora un'API di amministrazione (fuori scope Fase 1): un comando da riga di comando crea uno
-spazio "default" e una API Key con accesso `ReadWrite`, stampando la chiave in chiaro una sola volta:
+There isn't an administration API yet (out of scope for Phase 1): a command-line command creates a
+"default" space and an API Key with `ReadWrite` access, printing the plaintext key once:
 
 ```bash
 dotnet run --project src/MemoryMcp.Api -- --seed
 # Seeded space 'default' with API key: mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### 5. Avviare il server
+### 5. Start the server
 
 ```bash
 dotnet run --project src/MemoryMcp.Api
 ```
 
-Il server espone:
+The server exposes:
 - `GET /health` — health check
-- `POST /mcp` — endpoint MCP (Streamable HTTP), protetto: richiede l'header `X-Api-Key: <chiave>` (o
-  `Authorization: Bearer <chiave>`)
+- `POST /mcp` — MCP endpoint (Streamable HTTP), protected: requires the `X-Api-Key: <key>` header (or
+  `Authorization: Bearer <key>`)
 
-Porta predefinita in sviluppo: `http://localhost:5004` (vedi
+Default development port: `http://localhost:5004` (see
 `src/MemoryMcp.Api/Properties/launchSettings.json`).
 
-Puoi collegare un client MCP (es. [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector))
-all'endpoint `http://localhost:5004/mcp` passando l'header `X-Api-Key` con la chiave generata al passo 4.
+You can connect an MCP client (e.g. [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector))
+to the `http://localhost:5004/mcp` endpoint, passing the `X-Api-Key` header with the key generated in step 4.
 
-### 6. (Opzionale) Collegare Claude Desktop
+### 6. (Optional) Connect Claude Desktop
 
-Un file di esempio è disponibile in [claude_desktop_config.example.json](claude_desktop_config.example.json):
+A sample file is available at [claude_desktop_config.example.json](claude_desktop_config.example.json):
 
 ```json
 {
@@ -230,40 +230,40 @@ Un file di esempio è disponibile in [claude_desktop_config.example.json](claude
 }
 ```
 
-Copia il contenuto (sostituendo la chiave con quella generata al passo 4) nel file di configurazione reale
-di Claude Desktop, poi riavvia l'applicazione:
+Copy the content (replacing the key with the one generated in step 4) into Claude Desktop's actual
+configuration file, then restart the application:
 
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
-Se esiste già una sezione `mcpServers` con altri server, aggiungi semplicemente la voce `memory-mcp` senza
-sovrascrivere le altre. Al riavvio, i 7 tool di Memory-MCP saranno disponibili nella conversazione.
+If an `mcpServers` section already exists with other servers, simply add the `memory-mcp` entry without
+overwriting the others. On restart, Memory-MCP's 7 tools will be available in the conversation.
 
-## Test
+## Tests
 
 ```bash
-# Unit test (nessuna dipendenza esterna)
+# Unit tests (no external dependencies)
 dotnet test tests/MemoryMcp.Application.Tests/MemoryMcp.Application.Tests.csproj
 
-# Integration test ed end-to-end: richiedono un Postgres reale raggiungibile
+# Integration and end-to-end tests: require a reachable real Postgres
 export MEMORYMCP_TEST_CONNECTION_STRING="Host=localhost;Port=5432;Username=<user>;Password=<password>;Database=<database>"
 dotnet test
 ```
 
-> I test di integrazione/E2E si connettono direttamente al Postgres indicato da
-> `MEMORYMCP_TEST_CONNECTION_STRING` (niente Testcontainers/Docker, per coerenza con l'ambiente aziendale).
-> Applicano le migration automaticamente e ogni test usa chiavi/spazi con GUID casuali, quindi è sicuro
-> puntare anche al database di sviluppo.
+> The integration/E2E tests connect directly to the Postgres indicated by
+> `MEMORYMCP_TEST_CONNECTION_STRING` (no Testcontainers/Docker, for consistency with the company
+> environment). They apply migrations automatically and every test uses keys/spaces with random GUIDs, so it's
+> safe to point them at the development database too.
 
 ## Docker
 
-`Dockerfile` e `docker-compose.yml` sono pronti per ambienti dove Docker è disponibile (es. CI/CD o
-deployment), ma **non sono stati verificati in questo ambiente di sviluppo** (Docker Desktop bloccato da
-policy aziendale):
+`Dockerfile` and `docker-compose.yml` are ready for environments where Docker is available (e.g. CI/CD or
+deployment), but **have not been verified in this development environment** (Docker Desktop blocked by
+company policy):
 
 ```bash
 docker compose up --build
 ```
 
-Avvia un Postgres standard (`postgres:17`, senza `pgvector`) e il servizio `api`, esposto su
+Starts a standard Postgres (`postgres:17`, without `pgvector`) and the `api` service, exposed on
 `http://localhost:8080`.
