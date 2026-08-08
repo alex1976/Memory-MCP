@@ -68,6 +68,63 @@ public sealed class MemoryRepositoryTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task SearchAsync_filters_by_category_when_provided()
+    {
+        using var db = fixture.CreateDbContext();
+        var spaceId = await SeedSpaceAsync(db);
+
+        var work = new Memory(spaceId, "work note", TestVectors.Embedding(1f, 0f), category: "work");
+        var personal = new Memory(spaceId, "personal note", TestVectors.Embedding(1f, 0f), category: "personal");
+
+        db.Memories.AddRange(work, personal);
+        await db.SaveChangesAsync();
+
+        var repository = new MemoryRepository(db);
+        var results = await repository.SearchAsync(spaceId, TestVectors.Embedding(1f, 0f), topK: 10, category: "work");
+
+        results.Should().ContainSingle(r => r.Memory.Text == "work note");
+    }
+
+    [Fact]
+    public async Task SearchByKeywordAsync_matches_case_insensitive_substring_and_respects_category()
+    {
+        using var db = fixture.CreateDbContext();
+        var spaceId = await SeedSpaceAsync(db);
+
+        var match = new Memory(spaceId, "The Sky Is Blue", embedding: null, category: "nature");
+        var nonMatch = new Memory(spaceId, "the grass is green", embedding: null, category: "nature");
+        var wrongCategory = new Memory(spaceId, "the sky at night", embedding: null, category: "space");
+
+        db.Memories.AddRange(match, nonMatch, wrongCategory);
+        await db.SaveChangesAsync();
+
+        var repository = new MemoryRepository(db);
+        var results = await repository.SearchByKeywordAsync(spaceId, "sky", topK: 10, category: "nature");
+
+        results.Should().ContainSingle(m => m.Text == "The Sky Is Blue");
+    }
+
+    [Fact]
+    public async Task ListByCategoryAsync_returns_only_active_memories_in_that_category()
+    {
+        using var db = fixture.CreateDbContext();
+        var spaceId = await SeedSpaceAsync(db);
+
+        var active = new Memory(spaceId, "active", embedding: null, category: "work");
+        var forgotten = new Memory(spaceId, "forgotten", embedding: null, category: "work");
+        forgotten.Forget();
+        var otherCategory = new Memory(spaceId, "other", embedding: null, category: "personal");
+
+        db.Memories.AddRange(active, forgotten, otherCategory);
+        await db.SaveChangesAsync();
+
+        var repository = new MemoryRepository(db);
+        var results = await repository.ListByCategoryAsync(spaceId, "work", take: 10);
+
+        results.Should().ContainSingle(m => m.Text == "active");
+    }
+
+    [Fact]
     public async Task ListRecentActiveAsync_excludes_forgotten_memories()
     {
         using var db = fixture.CreateDbContext();

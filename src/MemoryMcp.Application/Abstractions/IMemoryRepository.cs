@@ -12,7 +12,13 @@ public interface IMemoryRepository
         Guid spaceId, int page, int limit, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<MemorySearchHit>> SearchAsync(
-        Guid spaceId, float[] queryEmbedding, int topK, CancellationToken cancellationToken = default);
+        Guid spaceId, float[] queryEmbedding, int topK, string? category = null, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Memory>> SearchByKeywordAsync(
+        Guid spaceId, string keyword, int topK, string? category = null, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<Memory>> ListByCategoryAsync(
+        Guid spaceId, string category, int take, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Memory>> ListRecentActiveAsync(
         Guid spaceId, int take, CancellationToken cancellationToken = default);

@@ -27,7 +27,7 @@ public sealed class MemoryServiceTests
     {
         var service = CreateService(new FakeAccessContext { Grants = [] });
 
-        var act = async () => await service.SearchMemoryAsync("hello", includeProfile: false, containerTag: null);
+        var act = async () => await service.SearchMemoryAsync("hello", keyword: null, category: null, includeProfile: false, containerTag: null);
 
         await act.Should().ThrowAsync<SpaceNotFoundException>();
     }
@@ -39,7 +39,7 @@ public sealed class MemoryServiceTests
         _embeddingProvider.EmbedAsync("hello", Arg.Any<CancellationToken>()).Returns(embedding);
 
         var hit = new MemorySearchHit(new Memory(SpaceId, "hit text", embedding), 0.9);
-        _memoryRepository.SearchAsync(SpaceId, embedding, 10, Arg.Any<CancellationToken>())
+        _memoryRepository.SearchAsync(SpaceId, embedding, 10, category: null, Arg.Any<CancellationToken>())
             .Returns(new[] { hit });
 
         var recent = new Memory(SpaceId, "recent text", embedding);
@@ -48,10 +48,49 @@ public sealed class MemoryServiceTests
 
         var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
 
-        var result = await service.SearchMemoryAsync("hello", includeProfile: true, containerTag: null);
+        var result = await service.SearchMemoryAsync("hello", keyword: null, category: null, includeProfile: true, containerTag: null);
 
         result.Matches.Should().ContainSingle(m => m.Text == "hit text" && m.Score == 0.9);
         result.Profile.Should().ContainSingle(m => m.Text == "recent text");
+    }
+
+    [Fact]
+    public async Task SearchMemoryAsync_keyword_search_matches_literal_text_without_embedding()
+    {
+        var match = new Memory(SpaceId, "the sky is blue", embedding: null);
+        _memoryRepository.SearchByKeywordAsync(SpaceId, "sky", 10, category: null, Arg.Any<CancellationToken>())
+            .Returns(new[] { match });
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
+
+        var result = await service.SearchMemoryAsync(query: null, keyword: "sky", category: null, includeProfile: false, containerTag: null);
+
+        result.Matches.Should().ContainSingle(m => m.Text == "the sky is blue");
+        await _embeddingProvider.DidNotReceive().EmbedAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SearchMemoryAsync_category_only_lists_memories_in_that_category()
+    {
+        var match = new Memory(SpaceId, "tagged memory", embedding: null, category: "work");
+        _memoryRepository.ListByCategoryAsync(SpaceId, "work", 10, Arg.Any<CancellationToken>())
+            .Returns(new[] { match });
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
+
+        var result = await service.SearchMemoryAsync(query: null, keyword: null, category: "work", includeProfile: false, containerTag: null);
+
+        result.Matches.Should().ContainSingle(m => m.Text == "tagged memory" && m.Category == "work");
+    }
+
+    [Fact]
+    public async Task SearchMemoryAsync_throws_when_no_query_keyword_or_category_is_given()
+    {
+        var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
+
+        var act = async () => await service.SearchMemoryAsync(query: null, keyword: null, category: null, includeProfile: false, containerTag: null);
+
+        await act.Should().ThrowAsync<ArgumentException>();
     }
 
     [Fact]
@@ -59,7 +98,7 @@ public sealed class MemoryServiceTests
     {
         var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
 
-        var act = async () => await service.AddMemoryAsync("content", MemoryAction.Save, containerTag: null);
+        var act = async () => await service.AddMemoryAsync("content", MemoryAction.Save, category: null, containerTag: null);
 
         await act.Should().ThrowAsync<AccessDeniedException>();
     }
@@ -72,7 +111,7 @@ public sealed class MemoryServiceTests
 
         var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
 
-        var result = await service.AddMemoryAsync("remember this", MemoryAction.Save, containerTag: null);
+        var result = await service.AddMemoryAsync("remember this", MemoryAction.Save, category: null, containerTag: null);
 
         result.Action.Should().Be(MemoryAction.Save);
         result.MemoryId.Should().NotBeNull();
@@ -92,7 +131,7 @@ public sealed class MemoryServiceTests
         var strongMatch = new Memory(SpaceId, "obsolete fact", embedding);
         var weakMatch = new Memory(SpaceId, "unrelated fact", embedding);
 
-        _memoryRepository.SearchAsync(SpaceId, embedding, 3, Arg.Any<CancellationToken>())
+        _memoryRepository.SearchAsync(SpaceId, embedding, 3, category: null, Arg.Any<CancellationToken>())
             .Returns(new[]
             {
                 new MemorySearchHit(strongMatch, 0.95),
@@ -101,7 +140,7 @@ public sealed class MemoryServiceTests
 
         var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
 
-        var result = await service.AddMemoryAsync("obsolete fact", MemoryAction.Forget, containerTag: null);
+        var result = await service.AddMemoryAsync("obsolete fact", MemoryAction.Forget, category: null, containerTag: null);
 
         result.AffectedCount.Should().Be(1);
         strongMatch.IsActive.Should().BeFalse();
@@ -114,12 +153,12 @@ public sealed class MemoryServiceTests
     {
         var embedding = new float[] { 0.5f };
         _embeddingProvider.EmbedAsync("nothing like this", Arg.Any<CancellationToken>()).Returns(embedding);
-        _memoryRepository.SearchAsync(SpaceId, embedding, 3, Arg.Any<CancellationToken>())
+        _memoryRepository.SearchAsync(SpaceId, embedding, 3, category: null, Arg.Any<CancellationToken>())
             .Returns(Array.Empty<MemorySearchHit>());
 
         var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
 
-        var result = await service.AddMemoryAsync("nothing like this", MemoryAction.Forget, containerTag: null);
+        var result = await service.AddMemoryAsync("nothing like this", MemoryAction.Forget, category: null, containerTag: null);
 
         result.AffectedCount.Should().Be(0);
         await _unitOfWork.DidNotReceive().SaveChangesAsync(Arg.Any<CancellationToken>());

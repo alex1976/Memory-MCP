@@ -16,13 +16,36 @@ public sealed class MemoryService(
     private const double ForgetSimilarityThreshold = 0.8;
 
     public async Task<SearchMemoryResult> SearchMemoryAsync(
-        string query, bool includeProfile, string? containerTag, CancellationToken cancellationToken = default)
+        string? query,
+        string? keyword,
+        string? category,
+        bool includeProfile,
+        string? containerTag,
+        CancellationToken cancellationToken = default)
     {
         var grant = RequireAccess(containerTag, AccessLevel.Read);
 
-        var embedding = await embeddingProvider.EmbedAsync(query, cancellationToken);
-        var hits = await memoryRepository.SearchAsync(grant.SpaceId, embedding, SearchTopK, cancellationToken);
-        var matches = hits.Select(h => new MemorySearchResultDto(h.Memory.Id, h.Memory.Text, h.Score, h.Memory.DocumentId)).ToList();
+        List<MemorySearchResultDto> matches;
+        if (!string.IsNullOrWhiteSpace(query))
+        {
+            var embedding = await embeddingProvider.EmbedAsync(query, cancellationToken);
+            var hits = await memoryRepository.SearchAsync(grant.SpaceId, embedding, SearchTopK, category, cancellationToken);
+            matches = hits.Select(h => new MemorySearchResultDto(h.Memory.Id, h.Memory.Text, h.Score, h.Memory.DocumentId, h.Memory.Category)).ToList();
+        }
+        else if (!string.IsNullOrWhiteSpace(keyword))
+        {
+            var hits = await memoryRepository.SearchByKeywordAsync(grant.SpaceId, keyword, SearchTopK, category, cancellationToken);
+            matches = hits.Select(m => new MemorySearchResultDto(m.Id, m.Text, Score: 1.0, m.DocumentId, m.Category)).ToList();
+        }
+        else if (!string.IsNullOrWhiteSpace(category))
+        {
+            var hits = await memoryRepository.ListByCategoryAsync(grant.SpaceId, category, SearchTopK, cancellationToken);
+            matches = hits.Select(m => new MemorySearchResultDto(m.Id, m.Text, Score: 1.0, m.DocumentId, m.Category)).ToList();
+        }
+        else
+        {
+            throw new ArgumentException("Provide at least one of query, keyword, or category.");
+        }
 
         IReadOnlyList<MemorySummaryDto>? profile = null;
         if (includeProfile)
@@ -35,13 +58,13 @@ public sealed class MemoryService(
     }
 
     public async Task<AddMemoryResult> AddMemoryAsync(
-        string content, MemoryAction action, string? containerTag, CancellationToken cancellationToken = default)
+        string content, MemoryAction action, string? category, string? containerTag, CancellationToken cancellationToken = default)
     {
         var grant = RequireAccess(containerTag, AccessLevel.ReadWrite);
 
         return action switch
         {
-            MemoryAction.Save => await SaveAsync(grant.SpaceId, content, cancellationToken),
+            MemoryAction.Save => await SaveAsync(grant.SpaceId, content, category, cancellationToken),
             MemoryAction.Forget => await ForgetAsync(grant.SpaceId, content, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unsupported memory action."),
         };
@@ -59,7 +82,7 @@ public sealed class MemoryService(
         return new PagedResult<MemorySummaryDto>(dtos, clampedPage, clampedLimit, totalCount);
     }
 
-    private async Task<AddMemoryResult> SaveAsync(Guid spaceId, string content, CancellationToken cancellationToken)
+    private async Task<AddMemoryResult> SaveAsync(Guid spaceId, string content, string? category, CancellationToken cancellationToken)
     {
         var title = content.Length > 80 ? content[..80] + "…" : content;
         var document = new Document(spaceId, title, docType: "note", rawContent: content);
@@ -67,7 +90,7 @@ public sealed class MemoryService(
         documentRepository.Add(document);
 
         var embedding = await embeddingProvider.EmbedAsync(content, cancellationToken);
-        var memory = new Memory(spaceId, content, embedding, document.Id);
+        var memory = new Memory(spaceId, content, embedding, document.Id, category);
         memoryRepository.Add(memory);
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -78,7 +101,7 @@ public sealed class MemoryService(
     private async Task<AddMemoryResult> ForgetAsync(Guid spaceId, string content, CancellationToken cancellationToken)
     {
         var embedding = await embeddingProvider.EmbedAsync(content, cancellationToken);
-        var candidates = await memoryRepository.SearchAsync(spaceId, embedding, ForgetCandidateTopK, cancellationToken);
+        var candidates = await memoryRepository.SearchAsync(spaceId, embedding, ForgetCandidateTopK, category: null, cancellationToken);
 
         var toForget = candidates.Where(c => c.Score >= ForgetSimilarityThreshold).ToList();
         foreach (var candidate in toForget)
@@ -111,5 +134,5 @@ public sealed class MemoryService(
     }
 
     private static MemorySummaryDto ToSummary(Memory memory) =>
-        new(memory.Id, memory.Text, memory.Version, memory.DocumentId, memory.IsActive, memory.CreatedAt);
+        new(memory.Id, memory.Text, memory.Version, memory.DocumentId, memory.IsActive, memory.CreatedAt, memory.Category);
 }

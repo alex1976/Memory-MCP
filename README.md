@@ -64,6 +64,13 @@ chiama il servizio applicativo, formatta l'output — nessuna logica di business
 implementazioni). Gli embedding sono salvati come colonna Postgres nativa `real[]` (via Npgsql) e la
 similarità coseno viene calcolata **in-app** in `MemoryRepository.SearchAsync`.
 
+Oltre alla ricerca semantica, `search_memory` supporta anche la ricerca letterale per parola chiave
+(`keyword`, match case-insensitive via `ILIKE` in `MemoryRepository.SearchByKeywordAsync`, senza generare
+embedding) e il filtro/elenco per categoria (`category`, colonna opzionale su `memories`, assegnabile in
+`add_memory`). I tre criteri sono combinabili: `query`/`keyword` possono essere ulteriormente ristretti da
+`category`; se si passa solo `category`, `MemoryRepository.ListByCategoryAsync` elenca le memorie di quella
+categoria ordinate per data di creazione. Va fornito almeno uno tra `query`, `keyword` e `category`.
+
 > Nota: la specifica originale prevedeva PostgreSQL + estensione `pgvector` con indice HNSW. In questo
 > ambiente Docker Desktop è bloccato da policy aziendale e il Postgres locale disponibile non ha
 > `pgvector` installato (né è possibile installarlo senza permessi di amministratore locale), quindi la
@@ -92,7 +99,7 @@ similarità coseno viene calcolata **in-app** in `MemoryRepository.SearchAsync`.
 | `api_keys` | Chiave API (solo hash salvato, mai il valore in chiaro) |
 | `api_key_space_grants` | Permesso `Read`/`ReadWrite` di una API Key su uno spazio + flag "spazio attivo" |
 | `documents` | Documento sorgente (titolo, tipo, stato, summary, contenuto raw) |
-| `memories` | Memoria estratta (testo, embedding `real[]`, versione, `is_active` per soft-delete/"forget") |
+| `memories` | Memoria estratta (testo, categoria opzionale, embedding `real[]`, versione, `is_active` per soft-delete/"forget") |
 
 ## Tool MCP disponibili
 
@@ -100,8 +107,8 @@ Tutti i 7 tool richiesti dalla specifica sono implementati in `src/MemoryMcp.Api
 
 | Tool | File | Accesso richiesto | Descrizione |
 | --- | --- | --- | --- |
-| `search_memory` | `MemoryTools.cs` | Read | Ricerca semantica (similarità coseno) tra le memorie di uno spazio, con profilo opzionale |
-| `add_memory` | `MemoryTools.cs` | ReadWrite | Salva (`action=save`) o rimuove (`action=forget`) una memoria |
+| `search_memory` | `MemoryTools.cs` | Read | Ricerca tra le memorie di uno spazio per similarità semantica (`query`), parola chiave letterale (`keyword`) e/o categoria (`category`), con profilo opzionale |
+| `add_memory` | `MemoryTools.cs` | ReadWrite | Salva (`action=save`, con `category` opzionale) o rimuove (`action=forget`) una memoria |
 | `listDocuments` | `DocumentTools.cs` | Read | Elenco paginato dei documenti sorgente di uno spazio |
 | `getDocument` | `DocumentTools.cs` | Read | Metadati e contenuto di un documento |
 | `listMemories` | `MemoryTools.cs` | Read | Elenco paginato delle memorie estratte |
@@ -125,7 +132,7 @@ Tutti i 7 tool richiesti dalla specifica sono implementati in `src/MemoryMcp.Api
 - [ ] Prompt MCP: `context`
 - [ ] Widget interattivi MCP Apps: `select-space`, `guided-save`, `upload-file`, `memory-graph`
       (richiedono il package `ModelContextProtocol.Extensions.Apps` e UI iframe-based)
-- [ ] Reintroduzione di `pgvector`/indice HNSW se e quando l'estensione sarà disponibile sull'ambiente Postgres di riferimento
+- [ ] Reintroduzione di `Qdrant`con indice HNSW nativo come vector DB
 
 Questi elementi si aggiungono come nuove classi (`[McpServerResourceType]`, `[McpServerPromptType]`) nel
 progetto `Api`, riusando i servizi `Application` esistenti — senza modifiche a `Domain`/`Application`.

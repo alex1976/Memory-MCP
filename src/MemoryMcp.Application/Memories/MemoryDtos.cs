@@ -6,9 +6,9 @@ public enum MemoryAction
     Forget,
 }
 
-public sealed record MemorySummaryDto(Guid Id, string Text, int Version, Guid? DocumentId, bool IsActive, DateTimeOffset CreatedAt);
+public sealed record MemorySummaryDto(Guid Id, string Text, int Version, Guid? DocumentId, bool IsActive, DateTimeOffset CreatedAt, string? Category);
 
-public sealed record MemorySearchResultDto(Guid Id, string Text, double Score, Guid? DocumentId);
+public sealed record MemorySearchResultDto(Guid Id, string Text, double Score, Guid? DocumentId, string? Category);
 
 public sealed record SearchMemoryResult(IReadOnlyList<MemorySearchResultDto> Matches, IReadOnlyList<MemorySummaryDto>? Profile);
 

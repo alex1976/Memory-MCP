@@ -310,10 +310,11 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
 
 <span class="tok-key">tool</span>: <span class="tok-str">"search_memory"</span>
 <span class="tok-key">query</span>: <span class="tok-str">"preferenze utente"</span>
+<span class="tok-key">category</span>: <span class="tok-str">"profilo"</span>
 <span class="tok-key">includeProfile</span>: <span class="tok-str">true</span>
 
-<span class="tok-com"># → memorie pertinenti, ordinate per</span>
-<span class="tok-com">#   similarità semantica</span></pre>
+<span class="tok-com"># → memorie pertinenti, per similarità</span>
+<span class="tok-com">#   semantica, keyword letterale o categoria</span></pre>
     </div>
   </div>
 </section>
@@ -372,8 +373,8 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       </div>
       <div class="card">
         <div class="icon">◇</div>
-        <h3>Ricerca semantica</h3>
-        <p>Similarità coseno tra embedding calcolata in-app, su una colonna Postgres <code>real[]</code> nativa — nessuna estensione richiesta.</p>
+        <h3>Ricerca semantica, keyword o categoria</h3>
+        <p>Similarità coseno tra embedding calcolata in-app (colonna Postgres <code>real[]</code> nativa), affiancata da match letterale per parola chiave e filtro/elenco per categoria — combinabili tra loro.</p>
       </div>
       <div class="card">
         <div class="icon">○</div>
@@ -402,11 +403,11 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
     <div class="tools-grid">
       <div class="tool-card">
         <div class="head"><span class="tool-name">search_memory</span><span class="access read">Read</span></div>
-        <p>Ricerca semantica tra le memorie di uno spazio, con profilo stabile/recente opzionale.</p>
+        <p>Ricerca tra le memorie di uno spazio per similarità semantica, parola chiave letterale e/o categoria (combinabili), con profilo stabile/recente opzionale.</p>
       </div>
       <div class="tool-card">
         <div class="head"><span class="tool-name">add_memory</span><span class="access readwrite">ReadWrite</span></div>
-        <p>Salva (<code>save</code>) o rimuove (<code>forget</code>) una memoria in base al contenuto.</p>
+        <p>Salva (<code>save</code>, con categoria opzionale) o rimuove (<code>forget</code>) una memoria in base al contenuto.</p>
       </div>
       <div class="tool-card">
         <div class="head"><span class="tool-name">listMemories</span><span class="access read">Read</span></div>
@@ -480,7 +481,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
           <li><span class="mark">○</span> Resource MCP: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code></li>
           <li><span class="mark">○</span> Prompt MCP: <code>context</code></li>
           <li><span class="mark">○</span> Widget MCP Apps: select-space, guided-save, upload-file, memory-graph</li>
-          <li><span class="mark">○</span> Reintroduzione di pgvector/HNSW se l'estensione diventa disponibile</li>
+          <li><span class="mark">○</span> Reintroduzione di `Qdrant`con indice HNSW nativo come vector DB</li>
         </ul>
       </div>
     </div>

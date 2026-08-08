@@ -10,19 +10,29 @@ namespace MemoryMcp.Api.Tools;
 public sealed class MemoryTools(IMemoryService memoryService)
 {
     [McpServerTool(Name = "search_memory")]
-    [Description("Semantic search over stored memories in a space, optionally including stable/recent profile context.")]
+    [Description("Searches stored memories in a space by semantic similarity, literal keyword, and/or category, optionally including stable/recent profile context. Provide at least one of query/keyword/category.")]
     public Task<SearchMemoryResult> SearchMemory(
-        [Description("Natural language search query.")] string query,
+        [Description("Natural language search query for semantic similarity search.")] string? query = null,
+        [Description("Literal keyword or phrase to match against memory text (case-insensitive substring match), instead of or alongside semantic search.")] string? keyword = null,
+        [Description("Restrict results to memories saved under this category.")] string? category = null,
         [Description("Include stable/recent profile context alongside matches. Defaults to true.")] bool includeProfile = true,
         [Description("Space key; defaults to the API key's active space.")] string? containerTag = null,
-        CancellationToken cancellationToken = default) =>
-        ToolExecution.RunAsync(() => memoryService.SearchMemoryAsync(query, includeProfile, containerTag, cancellationToken));
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query) && string.IsNullOrWhiteSpace(keyword) && string.IsNullOrWhiteSpace(category))
+        {
+            throw new McpException("Provide at least one of query, keyword, or category.");
+        }
+
+        return ToolExecution.RunAsync(() => memoryService.SearchMemoryAsync(query, keyword, category, includeProfile, containerTag, cancellationToken));
+    }
 
     [McpServerTool(Name = "add_memory")]
     [Description("Saves new information as a memory ('save', default), or forgets a previously saved memory matching the given content ('forget').")]
     public Task<AddMemoryResult> AddMemory(
         [Description("The information to save, or to match against when forgetting.")] string content,
         [Description("'save' (default) or 'forget'.")] string action = "save",
+        [Description("Optional category label to tag the memory with, for later filtering in search_memory. Only used when saving.")] string? category = null,
         [Description("Space key; defaults to the API key's active space.")] string? containerTag = null,
         CancellationToken cancellationToken = default)
     {
@@ -31,7 +41,7 @@ public sealed class MemoryTools(IMemoryService memoryService)
             throw new McpException($"Unsupported action '{action}'. Use 'save' or 'forget'.");
         }
 
-        return ToolExecution.RunAsync(() => memoryService.AddMemoryAsync(content, parsedAction, containerTag, cancellationToken));
+        return ToolExecution.RunAsync(() => memoryService.AddMemoryAsync(content, parsedAction, category, containerTag, cancellationToken));
     }
 
     [McpServerTool(Name = "listMemories")]

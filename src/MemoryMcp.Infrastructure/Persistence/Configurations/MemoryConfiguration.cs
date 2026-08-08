@@ -13,6 +13,7 @@ public sealed class MemoryConfiguration : IEntityTypeConfiguration<Domain.Memory
         builder.HasKey(m => m.Id);
 
         builder.Property(m => m.Text).IsRequired();
+        builder.Property(m => m.Category).HasMaxLength(100);
 
         // Plain Postgres real[] via Npgsql's native array mapping (no pgvector extension available
         // in this environment); similarity search is computed in-app — see MemoryRepository.SearchAsync.
@@ -24,6 +25,7 @@ public sealed class MemoryConfiguration : IEntityTypeConfiguration<Domain.Memory
         builder.Property(m => m.Embedding).Metadata.SetValueComparer(embeddingComparer);
 
         builder.HasIndex(m => m.SpaceId);
+        builder.HasIndex(m => new { m.SpaceId, m.Category });
 
         builder.HasOne<Space>().WithMany().HasForeignKey(m => m.SpaceId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Document>().WithMany().HasForeignKey(m => m.DocumentId).OnDelete(DeleteBehavior.SetNull);

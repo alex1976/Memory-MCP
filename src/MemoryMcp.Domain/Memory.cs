@@ -6,6 +6,7 @@ public sealed class Memory
     public Guid SpaceId { get; private set; }
     public Guid? DocumentId { get; private set; }
     public string Text { get; private set; } = default!;
+    public string? Category { get; private set; }
     public float[]? Embedding { get; private set; }
     public int Version { get; private set; }
     public bool IsActive { get; private set; }
@@ -17,12 +18,13 @@ public sealed class Memory
     {
     }
 
-    public Memory(Guid spaceId, string text, float[]? embedding, Guid? documentId = null)
+    public Memory(Guid spaceId, string text, float[]? embedding, Guid? documentId = null, string? category = null)
     {
         Id = Guid.NewGuid();
         SpaceId = spaceId;
         DocumentId = documentId;
         Text = text;
+        Category = category;
         Embedding = embedding;
         Version = 1;
         IsActive = true;

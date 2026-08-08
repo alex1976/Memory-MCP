@@ -15,8 +15,8 @@ Your assistant chooses these tools automatically. Use this table when you need t
 
 | Tool | Use it for | Inputs | Result |
 | --- | --- | --- | --- |
-| `search_memory` | Semantic recall from one space, with optional profile context | `query` (required), `includeProfile`, `containerTag` | Profile context and matching memories |
-| `add_memory` | Save information or forget outdated information | `content` (required), `action` (`save` or `forget`), `containerTag` | Save or forget confirmation |
+| `search_memory` | Semantic, keyword, or category recall from one space, with optional profile context | `query`, `keyword`, `category` (at least one required), `includeProfile`, `containerTag` | Profile context and matching memories |
+| `add_memory` | Save information or forget outdated information | `content` (required), `action` (`save` or `forget`), `category`, `containerTag` | Save or forget confirmation |
 | `listDocuments` | Browse stored source documents and their summaries | `page`, `limit`, `containerTag` | Document IDs, titles, types, status, dates, and summaries |
 | `getDocument` | Read the available content of one document | `documentId` (required) | Document metadata, summary, and available content |
 | `listMemories` | Browse recent extracted memory entries and their source document IDs | `page`, `limit`, `containerTag` | Memory IDs, text, versions, and source document IDs |
@@ -25,7 +25,7 @@ Your assistant chooses these tools automatically. Use this table when you need t
 
 ### Search
 
-`search_memory` accepts a natural-language query and returns semantically relevant memories. By default, it also includes stable and recent profile context from the same space. Set `includeProfile` to `false` when only matching memories are needed. Use the retrieval tools for different questions:
+`search_memory` accepts a natural-language `query` for semantic recall, a literal `keyword` for exact/substring text matching, and/or a `category` to filter to memories tagged with it — at least one of the three must be given, and they can be combined (e.g. a `keyword` restricted to a `category`). By default, it also includes stable and recent profile context from the same space. Set `includeProfile` to `false` when only matching memories are needed. Use the retrieval tools for different questions:
 
 -   Use `search_memory` to answer a question from remembered context.
 
@@ -36,7 +36,7 @@ Your assistant chooses these tools automatically. Use this table when you need t
 
 ### Save or forget
 
-`add_memory` saves the supplied `content` by default. Set `action` to `forget` when a fact is outdated or should be removed. There is no separate forget tool. If the content is already final, the assistant should use `add_memory`. If you want to review, edit, or choose a space before saving, it should open the `guided-save` widget instead.
+`add_memory` saves the supplied `content` by default. Set `action` to `forget` when a fact is outdated or should be removed. There is no separate forget tool. An optional `category` tags a saved memory so it can be filtered later via `search_memory`. If the content is already final, the assistant should use `add_memory`. If you want to review, edit, or choose a space before saving, it should open the `guided-save` widget instead.
 
 ### Access control
 
