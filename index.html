@@ -300,7 +300,7 @@
         <span class="badge">.NET 10</span>
         <span class="badge">ASP.NET Core</span>
         <span class="badge">PostgreSQL + EF Core</span>
-        <span class="badge">OpenAI / Azure OpenAI</span>
+        <span class="badge">OpenAI / Azure OpenAI / Gemini</span>
         <span class="badge">Clean Architecture</span>
       </div>
       <div class="cta-row">
@@ -349,7 +349,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="arch-layer">
         <div>
           <div class="name">MemoryMcp.Infrastructure</div>
-          <div class="desc">EF Core · repositories · embedding provider (OpenAI / Azure OpenAI)</div>
+          <div class="desc">EF Core · repositories · embedding provider (OpenAI / Azure OpenAI / Gemini)</div>
         </div>
         <span class="tag">Npgsql · EF Core 10</span>
       </div>
@@ -385,7 +385,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="card">
         <div class="icon">○</div>
         <h3>Pluggable embedding</h3>
-        <p><code>IEmbeddingProvider</code> abstracts OpenAI and Azure OpenAI behind the same <code>EmbeddingClient</code>, resolved lazily so it doesn't block tools that don't need it.</p>
+        <p><code>IEmbeddingProvider</code> abstracts OpenAI, Azure OpenAI, and Gemini behind the same <code>EmbeddingClient</code>, resolved lazily so it doesn't block tools that don't need it.</p>
       </div>
     </div>
 
@@ -452,7 +452,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         <tr><td>MCP Server</td><td><code>ModelContextProtocol</code> / <code>ModelContextProtocol.AspNetCore</code> 2.1.0</td></tr>
         <tr><td>Web host</td><td>ASP.NET Core Minimal API</td></tr>
         <tr><td>Persistence</td><td>PostgreSQL + EF Core 10 (<code>Npgsql.EntityFrameworkCore.PostgreSQL</code>)</td></tr>
-        <tr><td>Embedding</td><td><code>OpenAI</code> / <code>Azure.AI.OpenAI</code>, same <code>EmbeddingClient</code></td></tr>
+        <tr><td>Embedding</td><td><code>OpenAI</code> / <code>Azure.AI.OpenAI</code> / <code>Gemini</code>, same <code>EmbeddingClient</code></td></tr>
         <tr><td>Authentication</td><td>Custom scheme based on API Key (SHA-256 hash)</td></tr>
         <tr><td>Tests</td><td>xUnit · NSubstitute · AwesomeAssertions · <code>Microsoft.AspNetCore.Mvc.Testing</code></td></tr>
         <tr><td>Container</td><td>Multi-stage Dockerfile + docker-compose</td></tr>
