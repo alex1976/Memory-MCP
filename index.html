@@ -217,7 +217,7 @@
   .stack-table code { font-family: var(--mono); font-size: 13px; color: var(--text); background: var(--bg-alt); padding: 2px 6px; border-radius: 6px; }
 
   /* PHASES */
-  .phases { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .phases { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
   .phase-card { border-radius: var(--radius); padding: 24px; border: 1px solid var(--card-border); }
   .phase-card.done { background: linear-gradient(180deg, rgba(85, 214, 184, 0.06), transparent); border-color: rgba(85, 214, 184, 0.35); }
   .phase-card.next { background: var(--card); }
@@ -227,6 +227,12 @@
   ul.checklist { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   ul.checklist li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--text-dim); }
   ul.checklist li .mark { flex-shrink: 0; margin-top: 2px; font-family: var(--mono); font-size: 12px; }
+  ul.checklist li .text { min-width: 0; overflow-wrap: anywhere; }
+  ul.checklist li code {
+    font-family: var(--mono); font-size: 0.92em; color: var(--text);
+    background: rgba(255, 255, 255, 0.06); padding: 1px 5px; border-radius: 4px;
+    overflow-wrap: anywhere;
+  }
   ul.checklist.done li .mark { color: var(--accent-3); }
   ul.checklist.next li .mark { color: var(--text-faint); }
 
@@ -466,22 +472,33 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         <span class="phase-badge done">Phase 1 — Completed</span>
         <h3>Core tools via standard MCP</h3>
         <ul class="checklist done">
-          <li><span class="mark">✓</span> Domain entities and relational data model</li>
-          <li><span class="mark">✓</span> EF Core persistence + initial migration</li>
-          <li><span class="mark">✓</span> API Key authentication with per-space permissions</li>
-          <li><span class="mark">✓</span> Pluggable embedding provider (OpenAI / Azure OpenAI)</li>
-          <li><span class="mark">✓</span> The 7 MCP tools, exposed on <code>/mcp</code></li>
-          <li><span class="mark">✓</span> Unit + integration + end-to-end test suite</li>
+          <li><span class="mark">✓</span><span class="text">Domain entities and relational data model</span></li>
+          <li><span class="mark">✓</span><span class="text">EF Core persistence + initial migration</span></li>
+          <li><span class="mark">✓</span><span class="text">API Key authentication with per-space permissions</span></li>
+          <li><span class="mark">✓</span><span class="text">Pluggable embedding provider (OpenAI / Azure OpenAI)</span></li>
+          <li><span class="mark">✓</span><span class="text">The 7 MCP tools, exposed on <code>/mcp</code></span></li>
+          <li><span class="mark">✓</span><span class="text">Unit + integration + end-to-end test suite</span></li>
+        </ul>
+      </div>
+      <div class="phase-card done">
+        <span class="phase-badge done">Phase 2 — Completed</span>
+        <h3>Graph memory</h3>
+        <ul class="checklist done">
+          <li><span class="mark">✓</span><span class="text"><code>MemoryEdge</code> / <code>RelationType</code> (Updates / Extends / Derives), generalizing <code>SupersededBy</code></span></li>
+          <li><span class="mark">✓</span><span class="text">Pluggable <code>IFactExtractor</code> (OpenAI / Azure OpenAI / Gemini / self-hosted), with a safe fallback when unconfigured</span></li>
+          <li><span class="mark">✓</span><span class="text"><code>memory_edges</code> table + recursive-CTE traversal, no graph DB extension required</span></li>
+          <li><span class="mark">✓</span><span class="text"><code>search_memory</code> enriched with <code>relatedMemories</code>; <code>add_memory</code> extracts and links multiple facts per save</span></li>
+          <li><span class="mark">✓</span><span class="text">Configurable embedding width, to support Gemini's native embedding dimensions</span></li>
         </ul>
       </div>
       <div class="phase-card next">
-        <span class="phase-badge next">Phase 2 — Not implemented</span>
+        <span class="phase-badge next">Phase 3 — Not implemented</span>
         <h3>Resources, prompts, and interactive widgets</h3>
         <ul class="checklist next">
-          <li><span class="mark">○</span> MCP Resources: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code></li>
-          <li><span class="mark">○</span> MCP Prompt: <code>context</code></li>
-          <li><span class="mark">○</span> MCP Apps widgets: select-space, guided-save, upload-file, memory-graph</li>
-          <li><span class="mark">○</span> Reintroducing `Qdrant` with a native HNSW index as the vector DB</li>
+          <li><span class="mark">○</span><span class="text">MCP Resources: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code></span></li>
+          <li><span class="mark">○</span><span class="text">MCP Prompt: <code>context</code></span></li>
+          <li><span class="mark">○</span><span class="text">MCP Apps widgets: select-space, guided-save, upload-file, memory-graph</span></li>
+          <li><span class="mark">○</span><span class="text">Reintroducing <code>Qdrant</code> with a native HNSW index as the vector DB</span></li>
         </ul>
       </div>
     </div>
@@ -492,7 +509,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
   <div class="wrap">
     <div class="section-head">
       <p class="eyebrow">Getting started</p>
-      <h2>Local setup in 4 steps</h2>
+      <h2>Local setup in 5 steps</h2>
     </div>
     <div class="steps">
       <div class="step">
@@ -512,12 +529,19 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="step">
         <div class="num">3</div>
         <div>
+          <h4>Configure the embedding provider (optional)</h4>
+          <div class="code-block"><span class="l"><span class="comment"># src/MemoryMcp.Api/appsettings.Development.json</span></span><span class="l">{ "Embeddings": { "Provider": "Gemini", "ApiKey": "AIza...", "Model": "gemini-embedding-001", "Dimensions": 3072 } }</span><span class="l"><span class="comment"># or "OpenAI" / "AzureOpenAI" — without this, add_memory/search_memory return a tool error</span></span></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <div>
           <h4>Create a test space and API Key</h4>
           <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api -- --seed</span><span class="l"><span class="comment"># Seeded space 'default' with API key: mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span></span></div>
         </div>
       </div>
       <div class="step">
-        <div class="num">4</div>
+        <div class="num">5</div>
         <div>
           <h4>Start the server</h4>
           <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api</span><span class="l"><span class="comment"># http://localhost:5004/mcp — requires the X-Api-Key header</span></span></div>

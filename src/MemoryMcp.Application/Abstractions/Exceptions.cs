@@ -23,3 +23,12 @@ public sealed class EntityNotFoundException : Exception
     {
     }
 }
+
+/// <summary>Thrown by <see cref="IFactExtractor"/> implementations when no provider is configured, so
+/// <see cref="MemoryMcp.Application.Memories.MemoryService"/> can fall back to saving whole content as a single memory.</summary>
+public sealed class ExtractorNotConfiguredException : Exception
+{
+    public ExtractorNotConfiguredException(string message) : base(message)
+    {
+    }
+}

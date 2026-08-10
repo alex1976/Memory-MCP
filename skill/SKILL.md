@@ -41,15 +41,32 @@ If `containerTag` is omitted, all tools operate on the current API Key's "active
   profile: useful for getting a general sense of context even when direct matches are few. Set it to
   `false` when you only need the targeted search result.
 
+Top matches may also include a `relatedMemories` list (each with `text`, `relationType` —
+`Updates`/`Extends`/`Derives` — and `hops`): these are memories linked to the match in the memory
+graph (see below). Use them to get fuller context (e.g. the detail a match `Extends`, or the fact it
+`Updates`) without an extra `search_memory` call.
+
+## Graph memory
+
+When saving, `add_memory` may split `content` into more than one atomic fact and link each fact to
+similar existing memories it `Updates`, `Extends`, or `Derives`. When a new fact `Updates` an older
+one, that older memory is automatically marked inactive (superseded) — you don't need a separate
+`action: "forget"` call for a fact that's a direct, self-contained correction of something already
+saved; just save the new fact and let the server relate it. Still use `action: "forget"` explicitly
+when you want to remove a memory without replacing it with new content, or when you're not confident
+the new content clearly supersedes a specific existing memory.
+
 ## Recommended workflow
 
 1. **At the start of a conversation** where persistent memory is relevant, consider calling
    `whoAmI`/`listSpaces` to understand the active space and your permissions, especially if the user
    works across multiple projects/spaces.
 2. **Before saving something new**, always run a `search_memory` (with `query` and/or `category`)
-   to check that the information isn't already present or in conflict with an existing memory. If
-   you find an outdated fact that contradicts it, use `add_memory` with `action: "forget"` first (or
-   instead of) saving the new fact.
+   to check that the information isn't already present or in conflict with an existing memory. If you
+   find an outdated fact that contradicts it, you can usually just save the new fact — graph memory
+   extraction (when configured on the server) will detect the contradiction and mark the old memory
+   superseded on its own. Use `add_memory` with `action: "forget"` when you want the old memory gone
+   without a specific new fact replacing it, or when you can't rely on extraction being configured.
 3. **When saving** (`add_memory`, `action: "save"`):
    - Write `content` as an atomic, self-contained fact (a sentence or a few lines), not an entire
      transcript or an unfiltered block of text.
@@ -61,9 +78,10 @@ If `containerTag` is omitted, all tools operate on the current API Key's "active
 4. **When retrieving** (`search_memory`), pick the mode that best fits (see above) instead of always
    using semantic search: a `keyword` or a `category` are more precise and cheaper when the
    term or grouping is already known.
-5. **When a piece of information is outdated or wrong**, use `add_memory` with `action: "forget"`,
-   passing in `content` text that describes/recalls the memory to remove (matching is by similarity, not
-   by ID) — don't let contradictory versions of the same information coexist.
+5. **When a piece of information is outdated or wrong and you have no replacement fact to save**, use
+   `add_memory` with `action: "forget"`, passing in `content` text that describes/recalls the memory to
+   remove (matching is by similarity, not by ID) — don't let contradictory versions of the same
+   information coexist. If you do have a replacement fact, prefer saving it (see step 2).
 6. **To explore what's been saved** without a precise query, use `listMemories`/`listDocuments`
    (paginated) instead of `search_memory`, which is meant for targeted retrieval.
 

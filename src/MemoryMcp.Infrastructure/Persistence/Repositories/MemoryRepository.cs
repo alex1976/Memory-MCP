@@ -94,4 +94,13 @@ public sealed class MemoryRepository(MemoryDbContext dbContext) : IMemoryReposit
             .Take(take)
             .ToListAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<Domain.Memory>> GetByIdsAsync(
+        IReadOnlyList<Guid> ids, CancellationToken cancellationToken = default)
+    {
+        return await dbContext.Memories
+            .AsNoTracking()
+            .Where(m => ids.Contains(m.Id))
+            .ToListAsync(cancellationToken);
+    }
 }

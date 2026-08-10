@@ -7,6 +7,9 @@ public sealed class MemoryService(
     IMemoryRepository memoryRepository,
     IDocumentRepository documentRepository,
     IEmbeddingProvider embeddingProvider,
+    IMemoryEdgeRepository memoryEdgeRepository,
+    IFactExtractor factExtractor,
+    IMemoryGraphService memoryGraphService,
     IUnitOfWork unitOfWork,
     ICurrentAccessContext accessContext) : IMemoryService
 {
@@ -14,6 +17,9 @@ public sealed class MemoryService(
     private const int ProfileTake = 5;
     private const int ForgetCandidateTopK = 3;
     private const double ForgetSimilarityThreshold = 0.8;
+    private const int ExtractionCandidateTopK = 5;
+    private const int RelatedMemoriesTopMatches = 3;
+    private const int RelatedMemoriesMaxHops = 2;
 
     public async Task<SearchMemoryResult> SearchMemoryAsync(
         string? query,
@@ -45,6 +51,15 @@ public sealed class MemoryService(
         else
         {
             throw new ArgumentException("Provide at least one of query, keyword, or category.");
+        }
+
+        for (var i = 0; i < matches.Count && i < RelatedMemoriesTopMatches; i++)
+        {
+            var related = await memoryGraphService.GetRelatedAsync(matches[i].Id, RelatedMemoriesMaxHops, cancellationToken);
+            if (related.Count > 0)
+            {
+                matches[i] = matches[i] with { RelatedMemories = related };
+            }
         }
 
         IReadOnlyList<MemorySummaryDto>? profile = null;
@@ -89,13 +104,65 @@ public sealed class MemoryService(
         document.MarkProcessed(summary: null);
         documentRepository.Add(document);
 
-        var embedding = await embeddingProvider.EmbedAsync(content, cancellationToken);
-        var memory = new Memory(spaceId, content, embedding, document.Id, category);
-        memoryRepository.Add(memory);
+        var contentEmbedding = await embeddingProvider.EmbedAsync(content, cancellationToken);
+
+        IReadOnlyList<ExtractedFact> facts;
+        IReadOnlyDictionary<Guid, Memory> candidatesById;
+        try
+        {
+            var candidateHits = await memoryRepository.SearchAsync(spaceId, contentEmbedding, ExtractionCandidateTopK, category: null, cancellationToken);
+            candidatesById = candidateHits.ToDictionary(h => h.Memory.Id, h => h.Memory);
+
+            var candidates = candidateHits.Select(h => new MemoryCandidateDto(h.Memory.Id, h.Memory.Text, h.Memory.Category)).ToList();
+            facts = await factExtractor.ExtractAsync(content, candidates, cancellationToken);
+        }
+        catch (ExtractorNotConfiguredException)
+        {
+            facts = [];
+            candidatesById = new Dictionary<Guid, Memory>();
+        }
+
+        if (facts.Count == 0)
+        {
+            // Extraction unconfigured (or returned nothing usable): fall back to saving the whole content
+            // as a single memory, exactly as before graph memory existed. Zero edges created.
+            var memory = new Memory(spaceId, content, contentEmbedding, document.Id, category);
+            memoryRepository.Add(memory);
+
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+
+            return new AddMemoryResult(memory.Id, MemoryAction.Save, 1, "Memory saved.");
+        }
+
+        Guid? firstMemoryId = null;
+        foreach (var fact in facts)
+        {
+            var factEmbedding = await embeddingProvider.EmbedAsync(fact.Text, cancellationToken);
+            var factMemory = new Memory(spaceId, fact.Text, factEmbedding, document.Id, fact.Category ?? category);
+            memoryRepository.Add(factMemory);
+            firstMemoryId ??= factMemory.Id;
+
+            foreach (var relation in fact.RelationsToExisting)
+            {
+                if (!candidatesById.TryGetValue(relation.ExistingMemoryId, out var existingMemory))
+                {
+                    // Ignore relations pointing at memories that weren't in the supplied candidates
+                    // (e.g. a hallucinated id) rather than risk a foreign key violation.
+                    continue;
+                }
+
+                memoryEdgeRepository.Add(new MemoryEdge(spaceId, factMemory.Id, existingMemory.Id, relation.RelationType));
+
+                if (relation.RelationType == RelationType.Updates)
+                {
+                    existingMemory.Forget(supersededBy: factMemory.Id);
+                }
+            }
+        }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return new AddMemoryResult(memory.Id, MemoryAction.Save, 1, "Memory saved.");
+        return new AddMemoryResult(firstMemoryId, MemoryAction.Save, facts.Count, $"Saved {facts.Count} extracted memory(ies).");
     }
 
     private async Task<AddMemoryResult> ForgetAsync(Guid spaceId, string content, CancellationToken cancellationToken)

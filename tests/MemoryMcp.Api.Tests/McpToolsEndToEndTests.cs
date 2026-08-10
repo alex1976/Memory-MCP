@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using AwesomeAssertions;
+using MemoryMcp.Application.Memories;
 using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 
 namespace MemoryMcp.Api.Tests;
 
@@ -107,6 +111,43 @@ public sealed class McpToolsEndToEndTests(McpApiFactory factory)
         var result = await client.CallToolAsync("search_memory", new Dictionary<string, object?>());
 
         (result.IsError ?? false).Should().BeTrue();
+
+        await client.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Search_memory_returns_related_memories_for_facts_linked_by_a_graph_edge()
+    {
+        using var httpClient = factory.CreateClient();
+        httpClient.DefaultRequestHeaders.Add("X-Api-Key", factory.RawApiKey);
+
+        var transport = new HttpClientTransport(
+            new HttpClientTransportOptions { Endpoint = new Uri(httpClient.BaseAddress!, "/mcp") },
+            httpClient);
+
+        var client = await McpClient.CreateAsync(transport);
+
+        var first = await client.CallToolAsync(
+            "add_memory", new Dictionary<string, object?> { ["content"] = "Alex is a PM at Stripe" });
+        (first.IsError ?? false).Should().BeFalse();
+
+        // FakeFactExtractor (registered in McpApiFactory) relates every new fact to all candidate
+        // memories via "Extends", so this second save creates a graph edge back to the first memory.
+        var second = await client.CallToolAsync(
+            "add_memory", new Dictionary<string, object?> { ["content"] = "Alex now leads a team of 5 at Stripe" });
+        (second.IsError ?? false).Should().BeFalse();
+
+        var searchResult = await client.CallToolAsync(
+            "search_memory", new Dictionary<string, object?> { ["query"] = "Alex's job", ["includeProfile"] = false });
+        (searchResult.IsError ?? false).Should().BeFalse();
+
+        var deserializeOptions = new JsonSerializerOptions(JsonSerializerOptions.Web);
+        deserializeOptions.Converters.Add(new JsonStringEnumConverter());
+
+        var json = searchResult.Content.OfType<TextContentBlock>().First().Text;
+        var parsed = JsonSerializer.Deserialize<SearchMemoryResult>(json, deserializeOptions);
+
+        parsed!.Matches.Should().Contain(m => m.RelatedMemories != null && m.RelatedMemories.Count > 0);
 
         await client.DisposeAsync();
     }

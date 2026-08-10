@@ -11,6 +11,7 @@ public static class DependencyInjection
     {
         services.AddScoped<IDocumentService, DocumentService>();
         services.AddScoped<IMemoryService, MemoryService>();
+        services.AddScoped<IMemoryGraphService, MemoryGraphService>();
         services.AddScoped<ISpaceService, SpaceService>();
         return services;
     }

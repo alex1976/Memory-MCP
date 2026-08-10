@@ -10,6 +10,7 @@ public sealed class MemoryDbContext(DbContextOptions<MemoryDbContext> options) :
     public DbSet<ApiKeySpaceGrant> ApiKeySpaceGrants => Set<ApiKeySpaceGrant>();
     public DbSet<Document> Documents => Set<Document>();
     public DbSet<Memory> Memories => Set<Memory>();
+    public DbSet<MemoryEdge> MemoryEdges => Set<MemoryEdge>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

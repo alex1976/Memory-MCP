@@ -5,6 +5,31 @@
       "headers": {
         "X-Api-Key": "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
+    },
+    "memory-mcp-stdio": {
+      "command": "dotnet",
+      "args": [
+        "C:\\path\\to\\Memory-MCP\\src\\MemoryMcp.Api\\bin\\Release\\net10.0\\MemoryMcp.Api.dll",
+        "--",
+        "--stdio"
+      ],
+      "env": {
+        "ConnectionStrings__Default": "Host=localhost;Port=5432;Username=<user>;Password=<password>;Database=<database>",
+        "MEMORYMCP_API_KEY": "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    "memory-mcp-remote": {
+      "command": "npx.cmd",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://localhost:5004/mcp",
+        "--header",
+        "X-Api-Key: ${MEMORYMCP_API_KEY}"
+      ],
+      "env": {
+        "MEMORYMCP_API_KEY": "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
     }
   }
 }

@@ -1,3 +1,5 @@
+using MemoryMcp.Domain;
+
 namespace MemoryMcp.Application.Memories;
 
 public enum MemoryAction
@@ -8,7 +10,10 @@ public enum MemoryAction
 
 public sealed record MemorySummaryDto(Guid Id, string Text, int Version, Guid? DocumentId, bool IsActive, DateTimeOffset CreatedAt, string? Category);
 
-public sealed record MemorySearchResultDto(Guid Id, string Text, double Score, Guid? DocumentId, string? Category);
+public sealed record RelatedMemoryDto(Guid Id, string Text, RelationType RelationType, int Hops);
+
+public sealed record MemorySearchResultDto(
+    Guid Id, string Text, double Score, Guid? DocumentId, string? Category, IReadOnlyList<RelatedMemoryDto>? RelatedMemories = null);
 
 public sealed record SearchMemoryResult(IReadOnlyList<MemorySearchResultDto> Matches, IReadOnlyList<MemorySummaryDto>? Profile);
 

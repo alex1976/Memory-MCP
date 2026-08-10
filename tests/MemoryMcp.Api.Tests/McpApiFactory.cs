@@ -58,6 +58,9 @@ public sealed class McpApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
         {
             services.RemoveAll<IEmbeddingProvider>();
             services.AddScoped<IEmbeddingProvider, FakeEmbeddingProvider>();
+
+            services.RemoveAll<IFactExtractor>();
+            services.AddScoped<IFactExtractor, FakeFactExtractor>();
         });
     }
 

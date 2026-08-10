@@ -29,7 +29,7 @@ Memory-MCP/
 │   │                              # ISpaceService, IEmbeddingProvider, repositories, ICurrentAccessContext)
 │   │                              # + application service implementations + DTOs.
 │   ├── MemoryMcp.Infrastructure/   # EF Core (MemoryDbContext, migrations, repositories), embedding
-│   │                              # provider (OpenAI/Azure OpenAI).
+│   │                              # provider (OpenAI/Azure OpenAI/Gemini) and fact extractor for graph memory.
 │   └── MemoryMcp.Api/             # ASP.NET Core host: MCP hosting, API Key authentication,
 │                                  # the 7 MCP tools (thin adapters with no business logic).
 └── tests/
@@ -60,9 +60,15 @@ calls the application service, and formats the output — no business logic in t
 
 ### Semantic search
 
-`IEmbeddingProvider` is pluggable (OpenAI or Azure OpenAI, the same `EmbeddingClient` under both
-implementations). Embeddings are stored as a native Postgres `real[]` column (via Npgsql), and cosine
-similarity is computed **in-app** in `MemoryRepository.SearchAsync`.
+`IEmbeddingProvider` is pluggable (OpenAI, Azure OpenAI, or Gemini — the same OpenAI SDK
+`EmbeddingClient` under all three, pointed at a different base URL for Gemini, since its API is
+OpenAI-compatible). Embeddings are stored as a native Postgres `real[]` column (via Npgsql), and cosine
+similarity is computed **in-app** in `MemoryRepository.SearchAsync`. The requested embedding width
+(`Embeddings:Dimensions`, forwarded as the OpenAI "dimensions" parameter) is configurable — it defaults
+to `1536` (OpenAI's `text-embedding-3-small`); when using Gemini's `gemini-embedding-001` prefer its
+native `3072` rather than truncating, since that model needs the result manually re-normalized for
+non-native widths. All memories in a space must share the same width, since there's no `pgvector`
+index to bridge dimension mismatches.
 
 Besides semantic search, `search_memory` also supports literal keyword search
 (`keyword`, case-insensitive match via `ILIKE` in `MemoryRepository.SearchByKeywordAsync`, without generating
@@ -78,6 +84,32 @@ category ordered by creation date. At least one of `query`, `keyword`, and `cate
 > vector index on very large volumes — if `pgvector` becomes available in the future, migrating to
 > an HNSW index requires revisiting `MemoryConfiguration` and `MemoryRepository.SearchAsync`.
 
+### Graph memory
+
+Saved content isn't stored verbatim as a single memory: `MemoryService.SaveAsync` first asks
+`IFactExtractor` to split it into atomic facts and classify each fact's relation — `Updates`,
+`Extends`, or `Derives` — to a handful of similar existing memories (fetched the same way
+`ForgetAsync` finds candidates, via `IMemoryRepository.SearchAsync`). Each fact becomes its own
+`Memory`, and each relation becomes a `MemoryEdge` row; an `Updates` relation also calls the existing
+`Memory.Forget(supersededBy:)`, so `SupersededBy`/`IsActive` stay in sync with the edge that
+generalizes them. `LlmFactExtractor` asks its chat model for this via JSON Schema structured output
+(strict mode) rather than parsing free text, and relations pointing at memory ids outside the supplied
+candidates are dropped defensively (a hallucinated id would otherwise violate the edge's foreign key).
+
+There's no dedicated graph database in this environment either (same constraint as above) — traversal
+(`MemoryEdgeRepository.GetRelatedAsync`) is a `WITH RECURSIVE` CTE over the plain `memory_edges`
+table, parameterized through EF Core's `Database.SqlQuery<T>`, bounded by a hop count and a
+visited-node path array to guarantee termination on cycles. `search_memory` attaches each top match's
+related memories (text + relation type + hop count) via `MemoryGraphService`, additive to the existing
+`MemorySearchResultDto` shape.
+
+If `Extraction:ApiKey` is left unconfigured, `IFactExtractor` throws `ExtractorNotConfiguredException`
+and `add_memory` transparently falls back to saving the whole content as a single memory with zero
+edges — exactly Phase 1's behavior, so nothing breaks for callers who never configure extraction.
+`IFactExtractor` is pluggable the same way as `IEmbeddingProvider` (OpenAI, Azure OpenAI, Gemini, or
+any other OpenAI-compatible chat endpoint such as a self-hosted Ollama/vLLM/LM Studio model) by
+configuration alone.
+
 ## Technology
 
 | Layer | Technology |
@@ -86,7 +118,8 @@ category ordered by creation date. At least one of `query`, `keyword`, and `cate
 | MCP Server | `ModelContextProtocol` / `ModelContextProtocol.AspNetCore` 2.1.0 |
 | Web host | ASP.NET Core Minimal API |
 | Persistence | PostgreSQL + EF Core 10 (`Npgsql.EntityFrameworkCore.PostgreSQL`) |
-| Embedding | `OpenAI` / `Azure.AI.OpenAI` (same `EmbeddingClient`, selected via configuration) |
+| Embedding | `OpenAI` / `Azure.AI.OpenAI` (same `EmbeddingClient`, selected via configuration; also backs Gemini's OpenAI-compatible endpoint) |
+| Fact extraction | Same `OpenAI` SDK's `ChatClient`, JSON Schema structured output (OpenAI / Azure OpenAI / Gemini / self-hosted OpenAI-compatible) |
 | Authentication | Custom `AuthenticationHandler<T>` scheme based on API Key (SHA-256 hash) |
 | Tests | xUnit, NSubstitute, AwesomeAssertions (MIT fork of FluentAssertions), `Microsoft.AspNetCore.Mvc.Testing` |
 | Container | Multi-stage Dockerfile + docker-compose (for environments where Docker is available) |
@@ -100,15 +133,18 @@ category ordered by creation date. At least one of `query`, `keyword`, and `cate
 | `api_key_space_grants` | `Read`/`ReadWrite` permission of an API Key on a space + "active space" flag |
 | `documents` | Source document (title, type, status, summary, raw content) |
 | `memories` | Extracted memory (text, optional category, `real[]` embedding, version, `is_active` for soft-delete/"forget") |
+| `memory_edges` | Typed, directed graph edge between two memories (`Updates`/`Extends`/`Derives`), scoped to a space |
 
 ## Available MCP tools
 
-All 7 tools required by the specification are implemented in `src/MemoryMcp.Api/Tools`:
+All 7 tools required by the specification are implemented in `src/MemoryMcp.Api/Tools`. `search_memory`
+and `add_memory` are enriched by graph memory (related memories on search results, multi-fact
+extraction on save) without any change to their tool contract — no new tool was added for this:
 
 | Tool | File | Access required | Description |
 | --- | --- | --- | --- |
-| `search_memory` | `MemoryTools.cs` | Read | Searches a space's memories by semantic similarity (`query`), literal keyword (`keyword`), and/or category (`category`), with optional profile |
-| `add_memory` | `MemoryTools.cs` | ReadWrite | Saves (`action=save`, with optional `category`) or removes (`action=forget`) a memory |
+| `search_memory` | `MemoryTools.cs` | Read | Searches a space's memories by semantic similarity (`query`), literal keyword (`keyword`), and/or category (`category`), with optional profile; top matches include `relatedMemories` from the graph |
+| `add_memory` | `MemoryTools.cs` | ReadWrite | Saves (`action=save`, with optional `category`) or removes (`action=forget`) a memory; saving extracts atomic facts and links them to related existing memories as graph edges |
 | `listDocuments` | `DocumentTools.cs` | Read | Paginated list of a space's source documents |
 | `getDocument` | `DocumentTools.cs` | Read | Metadata and content of a document |
 | `listMemories` | `MemoryTools.cs` | Read | Paginated list of extracted memories |
@@ -126,12 +162,25 @@ All 7 tools required by the specification are implemented in `src/MemoryMcp.Api/
 - [x] The 7 core MCP tools, exposed via `ModelContextProtocol.AspNetCore` on the `/mcp` HTTP endpoint
 - [x] Test suite (unit, integration, end-to-end)
 
-### Phase 2 — Not implemented (to avoid blocking future extensibility)
+### Phase 2 — Graph memory — Completed
+
+See [docs/graph-memory-plan.md](docs/graph-memory-plan.md) for the full design.
+
+- [x] `MemoryEdge`/`RelationType` domain model, generalizing the existing `SupersededBy`/`IsActive`/`Version` fields
+- [x] Pluggable `IFactExtractor` (OpenAI / Azure OpenAI / Gemini / self-hosted OpenAI-compatible), with a
+      strictly-additive fallback to Phase 1's single-memory save when unconfigured
+- [x] `memory_edges` table + `WITH RECURSIVE` CTE traversal (`MemoryEdgeRepository`, no graph DB extension)
+- [x] `search_memory` enriched with `relatedMemories`; `add_memory` extracts and links multiple facts per save
+- [x] `Embeddings:Dimensions` made configurable (Gemini's native embedding width differs from OpenAI's)
+- [x] Test suite extended (unit, integration, end-to-end)
+
+### Phase 3 — Not implemented (to avoid blocking future extensibility)
 
 - [ ] MCP Resources: `memory-mcp://profile`, `memory-mcp://spaces`
 - [ ] MCP Prompt: `context`
 - [ ] Interactive MCP Apps widgets: `select-space`, `guided-save`, `upload-file`, `memory-graph`
-      (require the `ModelContextProtocol.Extensions.Apps` package and iframe-based UI)
+      (require the `ModelContextProtocol.Extensions.Apps` package and iframe-based UI — the `memory-graph`
+      widget would visualize the `memory_edges` table added in Phase 2)
 - [ ] Reintroducing `Qdrant` with a native HNSW index as the vector DB
 
 These items are added as new classes (`[McpServerResourceType]`, `[McpServerPromptType]`) in the
@@ -143,7 +192,9 @@ These items are added as new classes (`[McpServerResourceType]`, `[McpServerProm
 
 - [.NET SDK 10](https://dotnet.microsoft.com/download) (version pinned in [global.json](global.json))
 - A reachable PostgreSQL instance (local or remote). **The `pgvector` extension is not required.**
-- (Optional) an OpenAI or Azure OpenAI API Key, needed only for the `add_memory` and `search_memory` tools
+- (Optional) an OpenAI, Azure OpenAI, or Gemini API Key, needed only for the `add_memory` and `search_memory` tools
+- (Optional) a second API Key (OpenAI / Azure OpenAI / Gemini / self-hosted) for fact extraction —
+  without it, `add_memory` still works but saves whole content as a single memory with no graph edges
 
 ### 1. Configure the connection string
 
@@ -168,6 +219,14 @@ dotnet tool restore # if you don't already have dotnet-ef installed: dotnet tool
 dotnet ef database update --project src/MemoryMcp.Infrastructure --startup-project src/MemoryMcp.Api
 ```
 
+> To wipe the database and start over from a clean schema (e.g. after accumulating test/throwaway
+> spaces), run [scripts/reset-db.ps1](scripts/reset-db.ps1) — **destructive**, it drops and recreates
+> the database pointed at by your current connection string, then re-applies all migrations and
+> optionally reseeds a fresh `default` space + API key:
+> ```powershell
+> ./scripts/reset-db.ps1
+> ```
+
 ### 3. (Optional) Configure the embedding provider
 
 To use `add_memory`/`search_memory`, in `appsettings.Development.json`:
@@ -183,10 +242,45 @@ To use `add_memory`/`search_memory`, in `appsettings.Development.json`:
 ```
 
 For Azure OpenAI: `"Provider": "AzureOpenAI"`, `"Endpoint": "https://<resource>.openai.azure.com"`,
-`"Model"` = deployment name. Without these settings the server still starts and all other
-tools work normally: only `add_memory`/`search_memory` will return a tool error.
+`"Model"` = deployment name. For Gemini (its API is OpenAI-compatible):
 
-### 4. Create a test space and API Key
+```json
+{
+  "Embeddings": {
+    "Provider": "Gemini",
+    "ApiKey": "AIza...",
+    "Model": "gemini-embedding-001",
+    "Dimensions": 3072
+  }
+}
+```
+
+`Dimensions` defaults to `1536` (OpenAI's `text-embedding-3-small`) and is forwarded as the OpenAI
+"dimensions" request parameter; set it to `3072` for `gemini-embedding-001` (its native width — Gemini
+needs the result manually re-normalized for truncated widths, so avoid requesting a smaller one).
+Without any of this configured, the server still starts and all other tools work normally: only
+`add_memory`/`search_memory` will return a tool error.
+
+### 4. (Optional) Configure fact extraction (graph memory)
+
+To have `add_memory` split content into linked facts instead of one flat memory, configure a chat
+model — same provider choices as embeddings (`"OpenAI"`, `"AzureOpenAI"`, or `"Gemini"`), plus any other
+OpenAI-compatible endpoint (e.g. a self-hosted Ollama/vLLM/LM Studio model) via `Endpoint`:
+
+```json
+{
+  "Extraction": {
+    "Provider": "Gemini",
+    "ApiKey": "AIza...",
+    "Model": "gemini-2.5-flash"
+  }
+}
+```
+
+Leaving `Extraction:ApiKey` empty is fully supported: `add_memory` falls back to saving the whole
+content as a single memory with no graph edges, exactly like before graph memory existed.
+
+### 5. Create a test space and API Key
 
 There isn't an administration API yet (out of scope for Phase 1): a command-line command creates a
 "default" space and an API Key with `ReadWrite` access, printing the plaintext key once:
@@ -196,7 +290,7 @@ dotnet run --project src/MemoryMcp.Api -- --seed
 # Seeded space 'default' with API key: mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-### 5. Start the server
+### 6. Start the server
 
 ```bash
 dotnet run --project src/MemoryMcp.Api
@@ -211,11 +305,12 @@ Default development port: `http://localhost:5004` (see
 `src/MemoryMcp.Api/Properties/launchSettings.json`).
 
 You can connect an MCP client (e.g. [MCP Inspector](https://modelcontextprotocol.io/docs/tools/inspector))
-to the `http://localhost:5004/mcp` endpoint, passing the `X-Api-Key` header with the key generated in step 4.
+to the `http://localhost:5004/mcp` endpoint, passing the `X-Api-Key` header with the key generated in step 5.
 
-### 6. (Optional) Connect Claude Desktop
+### 7. (Optional) Connect Claude Desktop
 
-A sample file is available at [claude_desktop_config.example.json](claude_desktop_config.example.json):
+A sample file is available at [claude_desktop_config.example.json](claude_desktop_config.example.json),
+with three alternative ways to declare the server — pick one:
 
 ```json
 {
@@ -225,18 +320,72 @@ A sample file is available at [claude_desktop_config.example.json](claude_deskto
       "headers": {
         "X-Api-Key": "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
       }
+    },
+    "memory-mcp-stdio": {
+      "command": "dotnet",
+      "args": ["C:\\path\\to\\Memory-MCP\\src\\MemoryMcp.Api\\bin\\Release\\net10.0\\MemoryMcp.Api.dll", "--", "--stdio"],
+      "env": {
+        "ConnectionStrings__Default": "Host=localhost;Port=5432;Username=<user>;Password=<password>;Database=<database>",
+        "MEMORYMCP_API_KEY": "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    "memory-mcp-remote": {
+      "command": "npx.cmd",
+      "args": ["-y", "mcp-remote", "http://localhost:5004/mcp", "--header", "X-Api-Key: ${MEMORYMCP_API_KEY}"],
+      "env": {
+        "MEMORYMCP_API_KEY": "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
     }
   }
 }
 ```
 
-Copy the content (replacing the key with the one generated in step 4) into Claude Desktop's actual
-configuration file, then restart the application:
+- **`url`** (`memory-mcp`) — connects to the standalone HTTP server started in step 6; requires it to
+  already be running (`dotnet run --project src/MemoryMcp.Api`), same as any other MCP client. The
+  simplest option if your Claude Desktop version supports a native `url` entry.
+- **`command`** (`memory-mcp-stdio`) — Claude Desktop launches Memory-MCP itself as a local subprocess
+  over stdio instead of connecting over HTTP; no separately-running server needed. Build a Release
+  binary first (`dotnet build -c Release src/MemoryMcp.Api`) and point `args` at the resulting
+  `MemoryMcp.Api.dll`. **Use `dotnet <dll path>`, not `dotnet run`**: `dotnet run` prints its own status
+  lines (restore/build/launch-profile messages) to stdout, which is the same channel the MCP protocol
+  uses in stdio mode — that output would corrupt every message and break the client. Since there's no
+  HTTP request to carry an `X-Api-Key` header in this mode, the key is passed once via the
+  `MEMORYMCP_API_KEY` environment variable and resolved at process startup; an invalid or missing key
+  makes the process exit immediately with an error instead of starting.
+- **`command`** (`memory-mcp-remote`) — for a Claude Desktop version/client that only supports launching
+  local (stdio) servers and doesn't understand a native `url` entry. [`mcp-remote`](https://www.npmjs.com/package/mcp-remote)
+  is a generic stdio↔HTTP bridge (via `npx`, requires Node.js): it forwards to the same `/mcp` HTTP
+  endpoint as the plain `url` option, adding the `X-Api-Key` header itself via `--header`, with
+  `${MEMORYMCP_API_KEY}` interpolated from `env`. Like the `url` option (and unlike `memory-mcp-stdio`),
+  it still requires the HTTP server from step 6 to already be running — `mcp-remote` only bridges to it,
+  it doesn't launch `MemoryMcp.Api` itself. Prefer the plain `url` entry when it's supported; reach for
+  this only as a compatibility fallback.
+
+> **Troubleshooting `memory-mcp-stdio`:** if Claude Desktop reports something like `Unexpected token
+> 'I', "I possibil"... is not valid JSON`, the `args` path doesn't resolve to a real file — when
+> `dotnet <path>` can't find the target, the `dotnet` muxer itself prints a "did you mean...?" message
+> **to stdout** (in whatever language your OS is localized to), which lands on the exact channel the
+> MCP protocol uses and looks like garbage to the client. This is not an app error; it happens before
+> `MemoryMcp.Api` ever starts. Fix: replace the placeholder path with the real, absolute path to your
+> build output, and make sure you actually built it first (`dotnet build -c Release src/MemoryMcp.Api`).
+> Verify the exact command works before wiring it into Claude Desktop by running it in a terminal and
+> feeding it a request, e.g. (PowerShell):
+> ```powershell
+> $env:ConnectionStrings__Default = "Host=localhost;Port=5432;Username=<user>;Password=<password>;Database=<database>"
+> $env:MEMORYMCP_API_KEY = "mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+> '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}' | dotnet <path-to-MemoryMcp.Api.dll> -- --stdio
+> ```
+> A correct setup prints exactly one line of JSON (the `initialize` result) to stdout and nothing else;
+> any other text there means something upstream of the app is writing to the wrong stream.
+
+Copy the content (replacing the key(s) with the one generated in step 5, and the `dotnet` args/env with
+your own paths and connection string) into Claude Desktop's actual configuration file, then restart the
+application:
 
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
-If an `mcpServers` section already exists with other servers, simply add the `memory-mcp` entry without
+If an `mcpServers` section already exists with other servers, simply add the entry you picked without
 overwriting the others. On restart, Memory-MCP's 7 tools will be available in the conversation.
 
 ## Tests
