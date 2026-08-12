@@ -1,0 +1,265 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1150" viewBox="0 0 1600 1150" font-family="Segoe Print, Comic Sans MS, cursive">
+  <defs>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#e2d6bd"/>
+    </pattern>
+    <symbol id="ic-bulb" viewBox="0 0 40 40">
+      <circle cx="20" cy="16" r="12" fill="none" stroke="currentColor" stroke-width="3"/>
+      <line x1="16" y1="27" x2="24" y2="27" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <line x1="17" y1="32" x2="23" y2="32" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <line x1="20" y1="1" x2="20" y2="5" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="4" y1="16" x2="8" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="32" y1="16" x2="36" y2="16" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-spaces" viewBox="0 0 40 40">
+      <rect x="5" y="15" width="20" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="3"/>
+      <rect x="15" y="6" width="20" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="3"/>
+    </symbol>
+    <symbol id="ic-search" viewBox="0 0 40 40">
+      <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="3"/>
+      <line x1="24" y1="25" x2="34" y2="35" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-graph" viewBox="0 0 40 40">
+      <line x1="9" y1="31" x2="20" y2="11" stroke="currentColor" stroke-width="2.5"/>
+      <line x1="20" y1="11" x2="32" y2="26" stroke="currentColor" stroke-width="2.5"/>
+      <circle cx="9" cy="31" r="4.5" fill="currentColor"/>
+      <circle cx="20" cy="11" r="4.5" fill="currentColor"/>
+      <circle cx="32" cy="26" r="4.5" fill="currentColor"/>
+    </symbol>
+    <symbol id="ic-plug" viewBox="0 0 40 40">
+      <rect x="9" y="16" width="17" height="14" rx="4" fill="none" stroke="currentColor" stroke-width="3"/>
+      <line x1="14" y1="16" x2="14" y2="7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <line x1="21" y1="16" x2="21" y2="7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+      <path d="M26 23 Q35 23 35 33" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-tag" viewBox="0 0 40 40">
+      <path d="M7 10 H23 L33 20 L23 30 H7 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="14" cy="20" r="2.6" fill="currentColor"/>
+    </symbol>
+    <symbol id="ic-check" viewBox="0 0 40 40">
+      <circle cx="19" cy="20" r="15" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path d="M12 20 L17 26 L28 12" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="ic-dashed" viewBox="0 0 40 40">
+      <circle cx="19" cy="20" r="15" fill="none" stroke="currentColor" stroke-width="3" stroke-dasharray="4 6"/>
+    </symbol>
+  </defs>
+
+  <!-- paper -->
+  <rect x="0" y="0" width="1600" height="1150" fill="#f6efe1"/>
+  <rect x="0" y="0" width="1600" height="1150" fill="url(#dots)" opacity="0.55"/>
+  <rect x="14" y="14" width="1572" height="1122" rx="18" fill="none" stroke="#2e2a24" stroke-width="3"/>
+  <rect x="16" y="17" width="1568" height="1116" rx="18" fill="none" stroke="#2e2a24" stroke-width="1.3" stroke-opacity="0.35" transform="rotate(0.3 800 575)"/>
+
+  <!-- Header -->
+  <use href="#ic-bulb" x="46" y="30" width="58" height="58" color="#e8604c"/>
+  <g transform="rotate(-1 116 88)">
+    <text x="116" y="88" font-size="56" font-weight="700" fill="#2e2a24">Memory-MCP</text>
+    <path d="M120,104 Q 260,116 400,102 T 600,106" fill="none" stroke="#e8604c" stroke-width="3" stroke-linecap="round"/>
+  </g>
+  <text x="1540" y="54" text-anchor="end" font-size="18" fill="#5b5548">Persistent, multi-tenant memory for AI agents —</text>
+  <text x="1540" y="78" text-anchor="end" font-size="18" fill="#5b5548">over the Model Context Protocol.</text>
+  <path d="M1470,95 l6,-14 l6,14 l6,-14 l6,14" fill="none" stroke="#3b78c2" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Badges -->
+  <g font-size="14" font-weight="700" fill="#2e2a24">
+    <g transform="rotate(-1.5 105 187)">
+      <rect x="60" y="170" width="90" height="34" rx="14" fill="#fffaf0" stroke="#e8604c" stroke-width="2.4"/>
+      <text x="105" y="192" text-anchor="middle">.NET 10</text>
+    </g>
+    <g transform="rotate(1.2 257 187)">
+      <rect x="152" y="170" width="210" height="34" rx="14" fill="#fffaf0" stroke="#3b78c2" stroke-width="2.4"/>
+      <text x="257" y="192" text-anchor="middle">PostgreSQL + EF Core</text>
+    </g>
+    <g transform="rotate(-1 519 187)">
+      <rect x="374" y="170" width="290" height="34" rx="14" fill="#fffaf0" stroke="#3f9d63" stroke-width="2.4"/>
+      <text x="519" y="192" text-anchor="middle">OpenAI / Azure OpenAI / Gemini</text>
+    </g>
+    <g transform="rotate(1.4 771 187)">
+      <rect x="676" y="170" width="190" height="34" rx="14" fill="#fffaf0" stroke="#8b5fbf" stroke-width="2.4"/>
+      <text x="771" y="192" text-anchor="middle">Clean Architecture</text>
+    </g>
+    <g transform="rotate(-0.8 1008 187)">
+      <rect x="878" y="170" width="260" height="34" rx="14" fill="#fffaf0" stroke="#e3b23c" stroke-width="2.4"/>
+      <text x="1008" y="192" text-anchor="middle">7 tools · 3 resources · 1 prompt</text>
+    </g>
+  </g>
+
+  <!-- Architecture banner -->
+  <g transform="rotate(-0.8 240 227)">
+    <path d="M74,210 H392 L406,227 L392,244 H74 L60,227 Z" fill="#3b78c2" fill-opacity="0.18" stroke="#3b78c2" stroke-width="2.2"/>
+    <text x="240" y="234" text-anchor="middle" font-size="17" font-weight="700" fill="#2e2a24">ARCHITECTURE — 4 LAYERS</text>
+  </g>
+
+  <!-- Architecture boxes -->
+  <g transform="rotate(-0.8 239 320)">
+    <rect x="60" y="260" width="358" height="120" rx="16" fill="#fffaf0" stroke="#e8604c" stroke-width="2.4"/>
+    <rect x="60" y="260" width="358" height="120" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.2" stroke-opacity="0.3" transform="rotate(1.3 239 320)"/>
+    <text x="82" y="298" font-size="18" font-weight="700" fill="#2e2a24">Api</text>
+    <text x="82" y="322" font-size="13.5" fill="#5b5548">ASP.NET Core host · API Key auth</text>
+    <text x="82" y="342" font-size="13.5" fill="#5b5548">7 tools · 3 resources · 1 prompt</text>
+  </g>
+  <path d="M410,304 Q426,290 442,304" fill="none" stroke="#2e2a24" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="436,297 448,304 435,310" fill="#2e2a24"/>
+
+  <g transform="rotate(0.6 613 320)">
+    <rect x="434" y="260" width="358" height="120" rx="16" fill="#fffaf0" stroke="#2e2a24" stroke-width="2.2"/>
+    <rect x="434" y="260" width="358" height="120" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.2" stroke-opacity="0.3" transform="rotate(-1.1 613 320)"/>
+    <text x="456" y="298" font-size="18" font-weight="700" fill="#2e2a24">Infrastructure</text>
+    <text x="456" y="322" font-size="13.5" fill="#5b5548">EF Core · repositories</text>
+    <text x="456" y="342" font-size="13.5" fill="#5b5548">embedding &amp; fact-extraction providers</text>
+  </g>
+  <path d="M800,304 Q816,290 832,304" fill="none" stroke="#2e2a24" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="826,297 838,304 825,310" fill="#2e2a24"/>
+
+  <g transform="rotate(-0.5 987 320)">
+    <rect x="808" y="260" width="358" height="120" rx="16" fill="#fffaf0" stroke="#2e2a24" stroke-width="2.2"/>
+    <rect x="808" y="260" width="358" height="120" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.2" stroke-opacity="0.3" transform="rotate(1.2 987 320)"/>
+    <text x="830" y="298" font-size="18" font-weight="700" fill="#2e2a24">Application</text>
+    <text x="830" y="322" font-size="13.5" fill="#5b5548">Use cases: interfaces + services</text>
+    <text x="830" y="342" font-size="13.5" fill="#5b5548">Memory · Document · Space</text>
+  </g>
+  <path d="M1174,304 Q1190,290 1206,304" fill="none" stroke="#2e2a24" stroke-width="3" stroke-linecap="round"/>
+  <polygon points="1200,297 1212,304 1199,310" fill="#2e2a24"/>
+
+  <g transform="rotate(0.9 1361 320)">
+    <rect x="1182" y="260" width="358" height="120" rx="16" fill="#fffaf0" stroke="#8b5fbf" stroke-width="2.4"/>
+    <rect x="1182" y="260" width="358" height="120" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.2" stroke-opacity="0.3" transform="rotate(-1.3 1361 320)"/>
+    <text x="1204" y="298" font-size="18" font-weight="700" fill="#2e2a24">Domain</text>
+    <text x="1204" y="322" font-size="13.5" fill="#5b5548">Pure entities</text>
+    <text x="1204" y="342" font-size="13.5" fill="#5b5548">zero external dependencies</text>
+  </g>
+
+  <!-- What it does banner -->
+  <g transform="rotate(0.6 200 423)">
+    <path d="M74,406 H312 L326,423 L312,440 H74 L60,423 Z" fill="#e3b23c" fill-opacity="0.2" stroke="#e3b23c" stroke-width="2.2"/>
+    <text x="200" y="430" text-anchor="middle" font-size="17" font-weight="700" fill="#2e2a24">WHAT IT DOES</text>
+  </g>
+
+  <!-- Cards -->
+  <g transform="rotate(-1.1 280 520)">
+    <rect x="60" y="450" width="440" height="140" rx="16" fill="#fffaf0" stroke="#e8604c" stroke-width="2.2"/>
+    <rect x="60" y="450" width="440" height="140" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.1" stroke-opacity="0.28" transform="rotate(1.4 280 520)"/>
+    <use href="#ic-spaces" x="78" y="466" width="34" height="34" color="#e8604c"/>
+    <text x="124" y="490" font-size="17" font-weight="700" fill="#2e2a24">Multi-tenant spaces</text>
+    <text x="80" y="524" font-size="13.3" fill="#5b5548">Every API Key gets Read/ReadWrite grants</text>
+    <text x="80" y="544" font-size="13.3" fill="#5b5548">per space, with one marked "active".</text>
+  </g>
+
+  <g transform="rotate(0.8 740 520)">
+    <rect x="520" y="450" width="440" height="140" rx="16" fill="#fffaf0" stroke="#3b78c2" stroke-width="2.2"/>
+    <rect x="520" y="450" width="440" height="140" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.1" stroke-opacity="0.28" transform="rotate(-1.3 740 520)"/>
+    <use href="#ic-search" x="538" y="466" width="34" height="34" color="#3b78c2"/>
+    <text x="584" y="490" font-size="17" font-weight="700" fill="#2e2a24">Semantic + keyword + category</text>
+    <text x="540" y="524" font-size="13.3" fill="#5b5548">In-app cosine similarity, literal keyword</text>
+    <text x="540" y="544" font-size="13.3" fill="#5b5548">match, and category filtering — combinable.</text>
+  </g>
+
+  <g transform="rotate(-0.7 280 676)">
+    <rect x="60" y="606" width="440" height="140" rx="16" fill="#fffaf0" stroke="#3f9d63" stroke-width="2.2"/>
+    <rect x="60" y="606" width="440" height="140" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.1" stroke-opacity="0.28" transform="rotate(1.2 280 676)"/>
+    <use href="#ic-graph" x="78" y="622" width="34" height="34" color="#3f9d63"/>
+    <text x="124" y="646" font-size="17" font-weight="700" fill="#2e2a24">Graph memory</text>
+    <text x="80" y="680" font-size="13.3" fill="#5b5548">Content splits into atomic facts, linked via</text>
+    <text x="80" y="700" font-size="13.3" fill="#5b5548">Updates / Extends / Derives edges.</text>
+  </g>
+
+  <g transform="rotate(1.3 740 676)">
+    <rect x="520" y="606" width="440" height="140" rx="16" fill="#fffaf0" stroke="#e3b23c" stroke-width="2.2"/>
+    <rect x="520" y="606" width="440" height="140" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.1" stroke-opacity="0.28" transform="rotate(-1 740 676)"/>
+    <use href="#ic-plug" x="538" y="622" width="34" height="34" color="#e3b23c"/>
+    <text x="584" y="646" font-size="17" font-weight="700" fill="#2e2a24">Pluggable providers</text>
+    <text x="540" y="680" font-size="13.3" fill="#5b5548">Embeddings &amp; fact extraction swap between</text>
+    <text x="540" y="700" font-size="13.3" fill="#5b5548">OpenAI, Azure OpenAI, Gemini, self-hosted.</text>
+  </g>
+
+  <g transform="rotate(-1 280 832)">
+    <rect x="60" y="762" width="440" height="140" rx="16" fill="#fffaf0" stroke="#8b5fbf" stroke-width="2.2"/>
+    <rect x="60" y="762" width="440" height="140" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.1" stroke-opacity="0.28" transform="rotate(1.5 280 832)"/>
+    <use href="#ic-tag" x="78" y="778" width="34" height="34" color="#8b5fbf"/>
+    <text x="124" y="802" font-size="17" font-weight="700" fill="#2e2a24">MCP Resources &amp; Prompt</text>
+    <text x="80" y="836" font-size="13.3" fill="#5b5548">memory-mcp://profile, spaces, memories, +</text>
+    <text x="80" y="856" font-size="13.3" fill="#5b5548">a ready-to-attach "context" prompt.</text>
+  </g>
+
+  <g transform="rotate(0.6 740 832)">
+    <rect x="520" y="762" width="440" height="140" rx="16" fill="#fffaf0" stroke="#2f9e93" stroke-width="2.2"/>
+    <rect x="520" y="762" width="440" height="140" rx="16" fill="none" stroke="#2e2a24" stroke-width="1.1" stroke-opacity="0.28" transform="rotate(-1.4 740 832)"/>
+    <use href="#ic-check" x="538" y="778" width="34" height="34" color="#2f9e93"/>
+    <text x="584" y="802" font-size="17" font-weight="700" fill="#2e2a24">Tested end to end</text>
+    <text x="540" y="836" font-size="13.3" fill="#5b5548">Unit (mocked), integration (Postgres), and</text>
+    <text x="540" y="856" font-size="13.3" fill="#5b5548">end-to-end (real MCP client) — 53+ green.</text>
+  </g>
+
+  <!-- Phases banner -->
+  <g transform="rotate(-0.6 1120 423)">
+    <path d="M994,406 H1232 L1246,423 L1232,440 H994 L980,423 Z" fill="#8b5fbf" fill-opacity="0.18" stroke="#8b5fbf" stroke-width="2.2"/>
+    <text x="1120" y="430" text-anchor="middle" font-size="17" font-weight="700" fill="#2e2a24">PROJECT PHASES</text>
+  </g>
+
+  <!-- Phase notes -->
+  <g transform="rotate(-0.7 1260 509)">
+    <rect x="1230" y="441" width="60" height="18" rx="3" fill="#3f9d63" fill-opacity="0.5" transform="rotate(-4 1260 450)"/>
+    <rect x="980" y="450" width="560" height="118" rx="16" fill="#fffaf0" stroke="#3f9d63" stroke-width="2.2"/>
+    <use href="#ic-check" x="1000" y="466" width="30" height="30" color="#3f9d63"/>
+    <text x="1042" y="486" font-size="16" font-weight="700" fill="#2e2a24">Phase 1 — Core tools</text>
+    <text x="1042" y="508" font-size="12.8" fill="#5b5548">Domain model, EF Core, API Key auth,</text>
+    <text x="1042" y="524" font-size="12.8" fill="#5b5548">7 MCP tools exposed on /mcp.</text>
+  </g>
+
+  <g transform="rotate(0.6 1260 641)">
+    <rect x="1230" y="573" width="60" height="18" rx="3" fill="#3f9d63" fill-opacity="0.5" transform="rotate(3 1260 582)"/>
+    <rect x="980" y="582" width="560" height="118" rx="16" fill="#fffaf0" stroke="#3f9d63" stroke-width="2.2"/>
+    <use href="#ic-check" x="1000" y="598" width="30" height="30" color="#3f9d63"/>
+    <text x="1042" y="618" font-size="16" font-weight="700" fill="#2e2a24">Phase 2 — Graph memory</text>
+    <text x="1042" y="640" font-size="12.8" fill="#5b5548">Fact extraction, MemoryEdge relations,</text>
+    <text x="1042" y="656" font-size="12.8" fill="#5b5548">recursive-CTE traversal, no graph DB.</text>
+  </g>
+
+  <g transform="rotate(-0.5 1260 773)">
+    <rect x="1230" y="705" width="60" height="18" rx="3" fill="#3f9d63" fill-opacity="0.5" transform="rotate(-3 1260 714)"/>
+    <rect x="980" y="714" width="560" height="118" rx="16" fill="#fffaf0" stroke="#3f9d63" stroke-width="2.2"/>
+    <use href="#ic-check" x="1000" y="730" width="30" height="30" color="#3f9d63"/>
+    <text x="1042" y="750" font-size="16" font-weight="700" fill="#2e2a24">Phase 3 — Resources &amp; prompt</text>
+    <text x="1042" y="772" font-size="12.8" fill="#5b5548">3 resources + context prompt, same</text>
+    <text x="1042" y="788" font-size="12.8" fill="#5b5548">Application services as the tools.</text>
+  </g>
+
+  <g transform="rotate(0.5 1260 905)">
+    <rect x="980" y="846" width="560" height="118" rx="16" fill="#fffaf0" stroke="#2e2a24" stroke-width="2" stroke-dasharray="7 6"/>
+    <use href="#ic-dashed" x="1000" y="862" width="30" height="30" color="#8a8272"/>
+    <text x="1042" y="882" font-size="16" font-weight="700" fill="#5b5548">Phase 4 — Evolution</text>
+    <text x="1042" y="904" font-size="12.8" fill="#8a8272">Native graph DB (Neo4j) and HNSW</text>
+    <text x="1042" y="920" font-size="12.8" fill="#8a8272">vector index (Qdrant) — not implemented.</text>
+  </g>
+
+  <!-- Why it matters sticky note -->
+  <g transform="rotate(-1 800 1020)">
+    <rect x="140" y="988" width="1320" height="64" rx="6" fill="#f2d375" stroke="#2e2a24" stroke-width="2"/>
+    <circle cx="800" cy="988" r="7" fill="#c0392b" stroke="#2e2a24" stroke-width="1.3"/>
+    <path d="M186,1000 L176,1018 L184,1018 L178,1034 L196,1012 L187,1012 Z" fill="#e8604c" stroke="#2e2a24" stroke-width="1"/>
+    <text x="206" y="1026" font-size="15.5" fill="#2e2a24"><tspan font-weight="700">Why it matters:</tspan><tspan dx="8">selective retrieval, atomic facts &amp; precomputed relations replace "send everything" with "send only what's relevant".</tspan></text>
+  </g>
+
+  <!-- Footer tape -->
+  <g font-size="12" font-weight="700" fill="#2e2a24">
+    <g transform="rotate(-3 95 1097)">
+      <rect x="60" y="1085" width="70" height="26" fill="#3b78c2" fill-opacity="0.28"/>
+      <text x="95" y="1103" text-anchor="middle">xUnit</text>
+    </g>
+    <g transform="rotate(2 195 1097)">
+      <rect x="140" y="1085" width="130" height="26" fill="#e3b23c" fill-opacity="0.32"/>
+      <text x="205" y="1103" text-anchor="middle">NSubstitute</text>
+    </g>
+    <g transform="rotate(-2 325 1097)">
+      <rect x="280" y="1085" width="90" height="26" fill="#3f9d63" fill-opacity="0.3"/>
+      <text x="325" y="1103" text-anchor="middle">Npgsql</text>
+    </g>
+    <g transform="rotate(1.5 530 1097)">
+      <rect x="380" y="1085" width="320" height="26" fill="#8b5fbf" fill-opacity="0.25"/>
+      <text x="540" y="1103" text-anchor="middle">ModelContextProtocol.AspNetCore</text>
+    </g>
+  </g>
+  <text x="1540" y="1103" text-anchor="end" font-size="16" fill="#5b5548" transform="rotate(-0.6 1540 1103)">Memory-MCP — persistent memory for AI agents ✎</text>
+
+</svg>
