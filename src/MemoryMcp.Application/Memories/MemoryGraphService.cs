@@ -5,7 +5,7 @@ namespace MemoryMcp.Application.Memories;
 public sealed class MemoryGraphService(IMemoryEdgeRepository memoryEdgeRepository, IMemoryRepository memoryRepository) : IMemoryGraphService
 {
     public async Task<IReadOnlyList<RelatedMemoryDto>> GetRelatedAsync(
-        Guid rootMemoryId, int maxHops = 2, CancellationToken cancellationToken = default)
+        Guid rootMemoryId, Guid spaceId, int maxHops = 2, CancellationToken cancellationToken = default)
     {
         var related = await memoryEdgeRepository.GetRelatedAsync(rootMemoryId, maxHops, cancellationToken);
         if (related.Count == 0)
@@ -13,11 +13,12 @@ public sealed class MemoryGraphService(IMemoryEdgeRepository memoryEdgeRepositor
             return [];
         }
 
-        var memories = await memoryRepository.GetByIdsAsync(related.Select(r => r.MemoryId).ToList(), cancellationToken);
-        var textById = memories.ToDictionary(m => m.Id, m => m.Text);
+        var memories = await memoryRepository.GetByIdsAsync(spaceId, related.Select(r => r.MemoryId).ToList(), cancellationToken);
+        var byId = memories.ToDictionary(m => m.Id);
 
         return related
-            .Select(r => new RelatedMemoryDto(r.MemoryId, textById.GetValueOrDefault(r.MemoryId, string.Empty), r.RelationType, r.Hops))
+            .Where(r => byId.ContainsKey(r.MemoryId))
+            .Select(r => new RelatedMemoryDto(r.MemoryId, byId[r.MemoryId].Text, r.RelationType, r.Hops, byId[r.MemoryId].IsActive, r.Direction))
             .ToList();
     }
 }

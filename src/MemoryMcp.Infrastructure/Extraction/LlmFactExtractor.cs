@@ -41,6 +41,11 @@ public sealed class LlmFactExtractor(Lazy<ChatClient> client, IOptions<Extractio
         };
 
         var completion = await client.Value.CompleteChatAsync(messages, CompletionOptions, cancellationToken);
+        if (completion.Value.Content.Count == 0)
+        {
+            throw new InvalidOperationException("Extraction chat completion returned no content (possibly filtered or refused).");
+        }
+
         var json = completion.Value.Content[0].Text;
 
         var parsed = JsonSerializer.Deserialize<FactsResponse>(json, JsonOptions) ?? new FactsResponse([]);

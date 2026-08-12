@@ -36,7 +36,9 @@ builder.Services
         };
     })
     .WithHttpTransport()
-    .WithToolsFromAssembly();
+    .WithToolsFromAssembly()
+    .WithResourcesFromAssembly()
+    .WithPromptsFromAssembly();
 
 var app = builder.Build();
 
@@ -107,7 +109,9 @@ static async Task RunStdioAsync(string[] args)
             };
         })
         .WithStdioServerTransport()
-        .WithToolsFromAssembly();
+        .WithToolsFromAssembly()
+        .WithResourcesFromAssembly()
+        .WithPromptsFromAssembly();
 
     var host = builder.Build();
 
@@ -116,6 +120,9 @@ static async Task RunStdioAsync(string[] args)
 
     using (var scope = host.Services.CreateScope())
     {
+        var db = scope.ServiceProvider.GetRequiredService<MemoryDbContext>();
+        await db.Database.MigrateAsync();
+
         var apiKeyRepository = scope.ServiceProvider.GetRequiredService<IApiKeyRepository>();
         var snapshot = await apiKeyRepository.FindActiveAccessByHashAsync(ApiKeyHasher.Hash(rawKey))
             ?? throw new InvalidOperationException("MEMORYMCP_API_KEY is invalid or revoked.");

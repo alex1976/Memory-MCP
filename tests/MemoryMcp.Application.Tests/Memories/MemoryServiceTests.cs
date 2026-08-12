@@ -30,7 +30,7 @@ public sealed class MemoryServiceTests
         // behavior unless a test overrides these stubs.
         _factExtractor.ExtractAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ExtractedFact>());
-        _memoryGraphService.GetRelatedAsync(Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+        _memoryGraphService.GetRelatedAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<RelatedMemoryDto>());
     }
 
@@ -81,7 +81,7 @@ public sealed class MemoryServiceTests
             .Returns(new[] { hit });
 
         var relatedId = Guid.NewGuid();
-        _memoryGraphService.GetRelatedAsync(matchMemory.Id, 2, Arg.Any<CancellationToken>())
+        _memoryGraphService.GetRelatedAsync(matchMemory.Id, SpaceId, 2, Arg.Any<CancellationToken>())
             .Returns(new[] { new RelatedMemoryDto(relatedId, "related text", RelationType.Extends, 1) });
 
         var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
@@ -193,7 +193,8 @@ public sealed class MemoryServiceTests
             .Returns(new[] { candidateHit });
 
         var factEmbedding = new float[] { 0.4f };
-        _embeddingProvider.EmbedAsync("Alex left Stripe", Arg.Any<CancellationToken>()).Returns(factEmbedding);
+        _embeddingProvider.EmbedBatchAsync(Arg.Is<IReadOnlyList<string>>(l => l != null && l.SequenceEqual(new[] { "Alex left Stripe" })), Arg.Any<CancellationToken>())
+            .Returns(new[] { factEmbedding });
 
         var extractedFact = new ExtractedFact(
             "Alex left Stripe", Category: null, RelationsToExisting: [new ExtractedRelation(existing.Id, RelationType.Updates)]);
@@ -205,11 +206,77 @@ public sealed class MemoryServiceTests
         var result = await service.AddMemoryAsync("Alex left Stripe and joined a startup", MemoryAction.Save, category: null, containerTag: null);
 
         result.AffectedCount.Should().Be(1);
+        result.MemoryIds.Should().HaveCount(1);
         _memoryRepository.Received(1).Add(Arg.Is<Memory>(m => m != null && m.Text == "Alex left Stripe"));
         _memoryEdgeRepository.Received(1).Add(Arg.Is<MemoryEdge>(e =>
             e != null && e.SpaceId == SpaceId && e.ToMemoryId == existing.Id && e.RelationType == RelationType.Updates));
         existing.IsActive.Should().BeFalse();
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_save_does_not_forget_an_updates_target_below_the_similarity_threshold()
+    {
+        var contentEmbedding = new float[] { 0.3f };
+        _embeddingProvider.EmbedAsync("Alex left Stripe and joined a startup", Arg.Any<CancellationToken>()).Returns(contentEmbedding);
+
+        // Below ForgetSimilarityThreshold (0.8): a loosely-related/hallucinated "Updates" classification
+        // should still create the edge (the relation itself may be informative), but must not deactivate it.
+        var existing = new Memory(SpaceId, "Alex is a PM at Stripe", contentEmbedding);
+        var candidateHit = new MemorySearchHit(existing, 0.5);
+        _memoryRepository.SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, category: null, Arg.Any<CancellationToken>())
+            .Returns(new[] { candidateHit });
+
+        var factEmbedding = new float[] { 0.4f };
+        _embeddingProvider.EmbedBatchAsync(Arg.Is<IReadOnlyList<string>>(l => l != null && l.SequenceEqual(new[] { "Alex left Stripe" })), Arg.Any<CancellationToken>())
+            .Returns(new[] { factEmbedding });
+
+        var extractedFact = new ExtractedFact(
+            "Alex left Stripe", Category: null, RelationsToExisting: [new ExtractedRelation(existing.Id, RelationType.Updates)]);
+        _factExtractor.ExtractAsync("Alex left Stripe and joined a startup", Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { extractedFact });
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        await service.AddMemoryAsync("Alex left Stripe and joined a startup", MemoryAction.Save, category: null, containerTag: null);
+
+        _memoryEdgeRepository.Received(1).Add(Arg.Any<MemoryEdge>());
+        existing.IsActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_save_scopes_the_candidate_search_to_the_callers_category()
+    {
+        var contentEmbedding = new float[] { 0.3f };
+        _embeddingProvider.EmbedAsync("invoice due the 5th", Arg.Any<CancellationToken>()).Returns(contentEmbedding);
+        _memoryRepository.SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, "finance", Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<MemorySearchHit>());
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        await service.AddMemoryAsync("invoice due the 5th", MemoryAction.Save, category: "finance", containerTag: null);
+
+        await _memoryRepository.Received(1).SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, "finance", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_save_reuses_the_content_embedding_for_a_fact_matching_content_verbatim()
+    {
+        var contentEmbedding = new float[] { 0.3f };
+        _embeddingProvider.EmbedAsync("The sky is blue", Arg.Any<CancellationToken>()).Returns(contentEmbedding);
+        _memoryRepository.SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, category: null, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<MemorySearchHit>());
+
+        var extractedFact = new ExtractedFact("The sky is blue", Category: null, RelationsToExisting: []);
+        _factExtractor.ExtractAsync("The sky is blue", Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { extractedFact });
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        await service.AddMemoryAsync("The sky is blue", MemoryAction.Save, category: null, containerTag: null);
+
+        _memoryRepository.Received(1).Add(Arg.Is<Memory>(m => m != null && m.Embedding == contentEmbedding));
+        await _embeddingProvider.DidNotReceive().EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -221,7 +288,8 @@ public sealed class MemoryServiceTests
             .Returns(Array.Empty<MemorySearchHit>());
 
         var factEmbedding = new float[] { 0.4f };
-        _embeddingProvider.EmbedAsync("a fact", Arg.Any<CancellationToken>()).Returns(factEmbedding);
+        _embeddingProvider.EmbedBatchAsync(Arg.Is<IReadOnlyList<string>>(l => l != null && l.SequenceEqual(new[] { "a fact" })), Arg.Any<CancellationToken>())
+            .Returns(new[] { factEmbedding });
 
         var hallucinatedId = Guid.NewGuid();
         var extractedFact = new ExtractedFact("a fact", Category: null, RelationsToExisting: [new ExtractedRelation(hallucinatedId, RelationType.Extends)]);

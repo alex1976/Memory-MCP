@@ -278,6 +278,7 @@
     <nav class="navlinks">
       <a href="#architecture">Architecture</a>
       <a href="#tools">Tools</a>
+      <a href="#resources">Resources</a>
       <a href="#stack">Stack</a>
       <a href="#phases">Phases</a>
       <a href="#setup">Setup</a>
@@ -341,7 +342,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="arch-layer api">
         <div>
           <div class="name">MemoryMcp.Api</div>
-          <div class="desc">ASP.NET Core host · API Key authentication · the 7 MCP tools (thin adapters)</div>
+          <div class="desc">ASP.NET Core host · API Key authentication · 7 tools, 3 resources, 1 prompt (thin adapters)</div>
         </div>
         <span class="tag">ModelContextProtocol.AspNetCore</span>
       </div>
@@ -388,14 +389,6 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         <p><code>IEmbeddingProvider</code> abstracts OpenAI, Azure OpenAI, and Gemini behind the same <code>EmbeddingClient</code>, resolved lazily so it doesn't block tools that don't need it.</p>
       </div>
     </div>
-
-    <div class="arch-note">
-      <strong>Technical note:</strong> the spec called for PostgreSQL + <code>pgvector</code> with an HNSW index.
-      In this environment Docker is blocked by company policy and the local Postgres doesn't have the
-      extension installed (nor can it be installed without admin permissions), so the search was
-      implemented without external extensions. It works correctly, but doesn't scale as well as a native
-      vector index on very large volumes.
-    </div>
   </div>
 </section>
 
@@ -434,6 +427,35 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="tool-card">
         <div class="head"><span class="tool-name">whoAmI</span><span class="access none">—</span></div>
         <p>Current identity, accessible spaces, active space.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="resources">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">MCP Resources &amp; Prompt · Phase 3</p>
+      <h2>3 resources, 1 prompt — same services, no new tool contract</h2>
+      <p class="lede">For clients that support the Resources/Prompts primitives: thin adapters over the exact same
+        <code>Application</code> services the tools call, so profile/space context stays consistent everywhere.</p>
+    </div>
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">memory-mcp://profile</span><span class="access read">Resource</span></div>
+        <p>Recent-active-memories profile context for the active space — the same set <code>search_memory</code>'s <code>includeProfile</code> attaches.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">memory-mcp://spaces</span><span class="access read">Resource</span></div>
+        <p>The same compact space list as <code>listSpaces</code>, with the active space marked.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">memory-mcp://memories</span><span class="access read">Resource</span></div>
+        <p>First page of the active space's memories (any status) — same shape as <code>listMemories</code>.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">context</span><span class="access none">Prompt</span></div>
+        <p>A ready-to-attach text message: the active space's profile, plus up to 3 other spaces ranked by their most recent memory.</p>
       </div>
     </div>
   </div>
@@ -491,13 +513,21 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
           <li><span class="mark">✓</span><span class="text">Configurable embedding width, to support Gemini's native embedding dimensions</span></li>
         </ul>
       </div>
+      <div class="phase-card done">
+        <span class="phase-badge done">Phase 3 — Completed (widgets not implemented)</span>
+        <h3>Resources and prompt</h3>
+        <ul class="checklist done">
+          <li><span class="mark">✓</span><span class="text">MCP Resources: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code>, <code>memory-mcp://memories</code></span></li>
+          <li><span class="mark">✓</span><span class="text">MCP Prompt: <code>context</code>, ranking up to 3 other spaces by recent activity</span></li>
+          <li><span class="mark">✓</span><span class="text">Test suite extended end-to-end via the MCP client's resource/prompt calls</span></li>
+          <li><span class="mark" style="color: var(--text-faint);">○</span><span class="text">MCP Apps widgets: select-space, guided-save, upload-file, memory-graph — left for a future phase</span></li>
+        </ul>
+      </div>
       <div class="phase-card next">
-        <span class="phase-badge next">Phase 3 — Not implemented</span>
-        <h3>Resources, prompts, and interactive widgets</h3>
+        <span class="phase-badge next">Phase 4 — Not implemented</span>
+        <h3>Evolution</h3>
         <ul class="checklist next">
-          <li><span class="mark">○</span><span class="text">MCP Resources: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code></span></li>
-          <li><span class="mark">○</span><span class="text">MCP Prompt: <code>context</code></span></li>
-          <li><span class="mark">○</span><span class="text">MCP Apps widgets: select-space, guided-save, upload-file, memory-graph</span></li>
+          <li><span class="mark">○</span><span class="text">Review project for introducing a real graph DB (Neo4j)</span></li>
           <li><span class="mark">○</span><span class="text">Reintroducing <code>Qdrant</code> with a native HNSW index as the vector DB</span></li>
         </ul>
       </div>
@@ -509,7 +539,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
   <div class="wrap">
     <div class="section-head">
       <p class="eyebrow">Getting started</p>
-      <h2>Local setup in 5 steps</h2>
+      <h2>Local setup in 6 steps</h2>
     </div>
     <div class="steps">
       <div class="step">
@@ -536,12 +566,19 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="step">
         <div class="num">4</div>
         <div>
+          <h4>Configure fact extraction for graph memory (optional)</h4>
+          <div class="code-block"><span class="l"><span class="comment"># src/MemoryMcp.Api/appsettings.Development.json</span></span><span class="l">{ "Extraction": { "Provider": "Gemini", "ApiKey": "AIza...", "Model": "gemini-2.5-flash" } }</span><span class="l"><span class="comment"># or "OpenAI" / "AzureOpenAI" — without this, add_memory still works but saves whole content as one memory (no graph edges)</span></span></div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">5</div>
+        <div>
           <h4>Create a test space and API Key</h4>
           <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api -- --seed</span><span class="l"><span class="comment"># Seeded space 'default' with API key: mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span></span></div>
         </div>
       </div>
       <div class="step">
-        <div class="num">5</div>
+        <div class="num">6</div>
         <div>
           <h4>Start the server</h4>
           <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api</span><span class="l"><span class="comment"># http://localhost:5004/mcp — requires the X-Api-Key header</span></span></div>

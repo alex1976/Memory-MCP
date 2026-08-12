@@ -24,7 +24,7 @@ public sealed class MemoryTools(IMemoryService memoryService)
             throw new McpException("Provide at least one of query, keyword, or category.");
         }
 
-        return ToolExecution.RunAsync(() => memoryService.SearchMemoryAsync(query, keyword, category, includeProfile, containerTag, cancellationToken));
+        return McpExecution.RunAsync(() => memoryService.SearchMemoryAsync(query, keyword, category, includeProfile, containerTag, cancellationToken));
     }
 
     [McpServerTool(Name = "add_memory")]
@@ -41,7 +41,7 @@ public sealed class MemoryTools(IMemoryService memoryService)
             throw new McpException($"Unsupported action '{action}'. Use 'save' or 'forget'.");
         }
 
-        return ToolExecution.RunAsync(() => memoryService.AddMemoryAsync(content, parsedAction, category, containerTag, cancellationToken));
+        return McpExecution.RunAsync(() => memoryService.AddMemoryAsync(content, parsedAction, category, containerTag, cancellationToken));
     }
 
     [McpServerTool(Name = "listMemories")]
@@ -51,5 +51,5 @@ public sealed class MemoryTools(IMemoryService memoryService)
         [Description("Items per page, max 50. Defaults to 10.")] int limit = 10,
         [Description("Space key; defaults to the API key's active space.")] string? containerTag = null,
         CancellationToken cancellationToken = default) =>
-        ToolExecution.RunAsync(() => memoryService.ListMemoriesAsync(containerTag, page, limit, cancellationToken));
+        McpExecution.RunAsync(() => memoryService.ListMemoriesAsync(containerTag, page, limit, cancellationToken));
 }

@@ -15,12 +15,12 @@ public sealed class DocumentTools(IDocumentService documentService)
         [Description("Items per page, max 50. Defaults to 10.")] int limit = 10,
         [Description("Space key; defaults to the API key's active space.")] string? containerTag = null,
         CancellationToken cancellationToken = default) =>
-        ToolExecution.RunAsync(() => documentService.ListDocumentsAsync(containerTag, page, limit, cancellationToken));
+        McpExecution.RunAsync(() => documentService.ListDocumentsAsync(containerTag, page, limit, cancellationToken));
 
     [McpServerTool(Name = "getDocument")]
     [Description("Reads the metadata and available content of a single document.")]
     public Task<DocumentDetailDto> GetDocument(
         [Description("Document id.")] Guid documentId,
         CancellationToken cancellationToken = default) =>
-        ToolExecution.RunAsync(() => documentService.GetDocumentAsync(documentId, cancellationToken));
+        McpExecution.RunAsync(() => documentService.GetDocumentAsync(documentId, cancellationToken));
 }

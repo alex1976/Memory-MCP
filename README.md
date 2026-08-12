@@ -11,6 +11,7 @@ Full functional specification: [CLAUDE.md](CLAUDE.md).
 - [Technology](#technology)
 - [Data model](#data-model)
 - [Available MCP tools](#available-mcp-tools)
+- [Available MCP resources and prompts](#available-mcp-resources-and-prompts)
 - [Project phases](#project-phases)
 - [Setup and startup](#setup-and-startup)
 - [Tests](#tests)
@@ -41,7 +42,8 @@ Memory-MCP/
 **Why Clean Architecture and not Vertical Slice**: all tools share the same data model
 (Space/ApiKey/Memory/Document) and the same per-space authorization rules; isolating EF persistence
 and the embedding provider behind interfaces in `Application` allows the project to be extended (resources,
-prompts, MCP Apps widgets — Phase 2) without touching `Domain`/`Application`.
+prompts, MCP Apps widgets — Phase 3) with at most small, additive `Application` service methods and no
+changes to `Domain`.
 
 Every class in `Api/Tools` is a **thin adapter**: it resolves the access context (`ICurrentAccessContext`),
 calls the application service, and formats the output — no business logic in the Api layer.
@@ -151,6 +153,23 @@ extraction on save) without any change to their tool contract — no new tool wa
 | `listSpaces` | `AccessTools.cs` | — | Spaces accessible with the current API Key, with counts |
 | `whoAmI` | `AccessTools.cs` | — | Current identity, accessible spaces, active space |
 
+## Available MCP resources and prompts
+
+For clients that support them (Phase 3, see below) — implemented in `src/MemoryMcp.Api/Resources` and
+`src/MemoryMcp.Api/Prompts`, both thin adapters over the same `Application` services the tools use:
+
+| Kind | URI / Name | File | Description |
+| --- | --- | --- | --- |
+| Resource | `memory-mcp://profile` | `MemoryResources.cs` | Recent-active-memories profile context for the active space (the same set `search_memory`'s `includeProfile` attaches) |
+| Resource | `memory-mcp://spaces` | `AccessResources.cs` | The same compact space list as `listSpaces`, with the active space marked |
+| Resource | `memory-mcp://memories` | `MemoryResources.cs` | First page of the active space's memories (any status), same shape as `listMemories` |
+| Prompt | `context` | `ContextPrompt.cs` | A ready-to-attach text message: the active space's profile, plus up to 3 other spaces ranked by their most recent memory |
+
+All three resources are fixed (non-templated) URIs scoped to the API key's active space; none take
+arguments. `IMemoryService.GetProfileAsync` is the one small additive `Application` method this phase
+introduced — it's the profile-fetch logic already used by `search_memory`, extracted so it can be called
+on its own instead of only alongside a search.
+
 ## Project phases
 
 ### Phase 1 — Completed
@@ -174,17 +193,23 @@ See [docs/graph-memory-plan.md](docs/graph-memory-plan.md) for the full design.
 - [x] `Embeddings:Dimensions` made configurable (Gemini's native embedding width differs from OpenAI's)
 - [x] Test suite extended (unit, integration, end-to-end)
 
-### Phase 3 — Not implemented (to avoid blocking future extensibility)
+### Phase 3 — Resources and prompt — Completed (widgets not implemented)
 
-- [ ] MCP Resources: `memory-mcp://profile`, `memory-mcp://spaces`
-- [ ] MCP Prompt: `context`
+- [x] MCP Resources: `memory-mcp://profile`, `memory-mcp://spaces`, `memory-mcp://memories`
+- [x] MCP Prompt: `context`
+- [x] Test suite extended (end-to-end, via the MCP client's resource/prompt calls)
 - [ ] Interactive MCP Apps widgets: `select-space`, `guided-save`, `upload-file`, `memory-graph`
       (require the `ModelContextProtocol.Extensions.Apps` package and iframe-based UI — the `memory-graph`
-      widget would visualize the `memory_edges` table added in Phase 2)
+      widget would visualize the `memory_edges` table added in Phase 2; left for a future phase, to avoid
+      blocking further extensibility)
+
+### Phase 4 — Not implemented (evolution)
+- [ ] Review project for introducing a real graphDB (Neo4j)
 - [ ] Reintroducing `Qdrant` with a native HNSW index as the vector DB
 
-These items are added as new classes (`[McpServerResourceType]`, `[McpServerPromptType]`) in the
-`Api` project, reusing the existing `Application` services — without changes to `Domain`/`Application`.
+The remaining MCP Apps widgets would be added as new classes in the `Api` project, reusing the
+existing `Application` services, once the `ModelContextProtocol.Extensions.Apps` package and an
+iframe-based UI are in scope.
 
 ## Setup and startup
 
@@ -386,7 +411,8 @@ application:
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 If an `mcpServers` section already exists with other servers, simply add the entry you picked without
-overwriting the others. On restart, Memory-MCP's 7 tools will be available in the conversation.
+overwriting the others. On restart, Memory-MCP's 7 tools, 3 resources, and `context` prompt will be
+available in the conversation (support for resources/prompts varies by client).
 
 ## Tests
 

@@ -96,11 +96,11 @@ public sealed class MemoryRepository(MemoryDbContext dbContext) : IMemoryReposit
     }
 
     public async Task<IReadOnlyList<Domain.Memory>> GetByIdsAsync(
-        IReadOnlyList<Guid> ids, CancellationToken cancellationToken = default)
+        Guid spaceId, IReadOnlyList<Guid> ids, CancellationToken cancellationToken = default)
     {
         return await dbContext.Memories
             .AsNoTracking()
-            .Where(m => ids.Contains(m.Id))
+            .Where(m => m.SpaceId == spaceId && ids.Contains(m.Id))
             .ToListAsync(cancellationToken);
     }
 }

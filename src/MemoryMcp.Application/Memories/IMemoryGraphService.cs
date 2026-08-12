@@ -5,5 +5,5 @@ namespace MemoryMcp.Application.Memories;
 public interface IMemoryGraphService
 {
     Task<IReadOnlyList<RelatedMemoryDto>> GetRelatedAsync(
-        Guid rootMemoryId, int maxHops = 2, CancellationToken cancellationToken = default);
+        Guid rootMemoryId, Guid spaceId, int maxHops = 2, CancellationToken cancellationToken = default);
 }

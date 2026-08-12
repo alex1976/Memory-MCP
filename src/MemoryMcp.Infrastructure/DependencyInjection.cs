@@ -37,14 +37,16 @@ public static class DependencyInjection
         // Lazy: constructing the client validates provider config (e.g. requires a non-empty API key).
         // Deferring that until an embedding is actually requested keeps tools that don't need
         // embeddings (listMemories, listDocuments, ...) working even when no provider is configured.
-        services.AddSingleton(sp => new Lazy<EmbeddingClient>(() => CreateEmbeddingClient(sp)));
+        services.AddSingleton(sp => new Lazy<EmbeddingClient>(() => CreateEmbeddingClient(sp), LazyThreadSafetyMode.PublicationOnly));
         services.AddScoped<IEmbeddingProvider, OpenAiCompatibleEmbeddingProvider>();
 
         services.Configure<ExtractionOptions>(configuration.GetSection(ExtractionOptions.SectionName));
 
         // Same lazy pattern: LlmFactExtractor itself checks ApiKey before touching the client, so this
-        // is only ever forced when extraction is actually configured and invoked.
-        services.AddSingleton(sp => new Lazy<ChatClient>(() => CreateChatClient(sp)));
+        // is only ever forced when extraction is actually configured and invoked. PublicationOnly (rather
+        // than the default ExecutionAndPublication) avoids permanently caching a transient construction
+        // failure for the rest of the process's lifetime.
+        services.AddSingleton(sp => new Lazy<ChatClient>(() => CreateChatClient(sp), LazyThreadSafetyMode.PublicationOnly));
         services.AddScoped<IFactExtractor, LlmFactExtractor>();
 
         return services;

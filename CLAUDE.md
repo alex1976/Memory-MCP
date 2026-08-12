@@ -77,6 +77,7 @@ Some MCP clients also expose resources and prompts:
 | --- | --- | --- |
 | Resource | `memory-mcp://profile` | Stable and recent profile context for the active space |
 | Resource | `memory-mcp://spaces` | A compact list of accessible spaces with the active space marked |
+| Resource | `memory-mcp://memories` | The most recently created memories (any status) in the active space |
 | Prompt | `context` | A ready-to-attach context message for the active space, plus up to three recently active spaces |
 
 The `context` prompt takes no arguments. It returns profile context for the active space and up to three recently active spaces.

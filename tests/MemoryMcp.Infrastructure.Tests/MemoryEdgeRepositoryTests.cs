@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using MemoryMcp.Application.Abstractions;
 using MemoryMcp.Domain;
 using MemoryMcp.Infrastructure.Persistence.Repositories;
 using Memory = MemoryMcp.Domain.Memory;
@@ -75,7 +76,35 @@ public sealed class MemoryEdgeRepositoryTests(PostgresFixture fixture)
         var repository = new MemoryEdgeRepository(db);
         var related = await repository.GetRelatedAsync(a.Id, maxHops: 5);
 
-        related.Should().ContainSingle(r => r.MemoryId == b.Id);
+        // a->b and b->a are two distinct stored edges, so both a genuinely outgoing and a genuinely
+        // incoming relation to b exist; the point of this test is that traversal still terminates
+        // (doesn't hang/stack-overflow) rather than that the two directions collapse into one.
+        related.Should().HaveCount(2);
+        related.Should().ContainSingle(r => r.MemoryId == b.Id && r.Direction == RelatedMemoryDirection.Outgoing);
+        related.Should().ContainSingle(r => r.MemoryId == b.Id && r.Direction == RelatedMemoryDirection.Incoming);
+    }
+
+    [Fact]
+    public async Task GetRelatedAsync_surfaces_relations_when_the_root_is_the_older_side_of_the_edge()
+    {
+        using var db = fixture.CreateDbContext();
+        var spaceId = await SeedSpaceAsync(db);
+
+        // Mirrors how MemoryService actually creates edges: from the new fact to the older memory it
+        // relates to. A search that lands on the older memory (b) must still surface the newer one (a).
+        var a = new Memory(spaceId, "a", embedding: null);
+        var b = new Memory(spaceId, "b", embedding: null);
+        db.Memories.AddRange(a, b);
+        await db.SaveChangesAsync();
+
+        db.MemoryEdges.Add(new MemoryEdge(spaceId, a.Id, b.Id, RelationType.Updates));
+        await db.SaveChangesAsync();
+
+        var repository = new MemoryEdgeRepository(db);
+        var related = await repository.GetRelatedAsync(b.Id, maxHops: 2);
+
+        related.Should().ContainSingle(r =>
+            r.MemoryId == a.Id && r.RelationType == RelationType.Updates && r.Hops == 1 && r.Direction == RelatedMemoryDirection.Incoming);
     }
 
     [Fact]

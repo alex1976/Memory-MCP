@@ -55,21 +55,26 @@ public sealed class MemoryService(
 
         for (var i = 0; i < matches.Count && i < RelatedMemoriesTopMatches; i++)
         {
-            var related = await memoryGraphService.GetRelatedAsync(matches[i].Id, RelatedMemoriesMaxHops, cancellationToken);
+            var related = await memoryGraphService.GetRelatedAsync(matches[i].Id, grant.SpaceId, RelatedMemoriesMaxHops, cancellationToken);
             if (related.Count > 0)
             {
                 matches[i] = matches[i] with { RelatedMemories = related };
             }
         }
 
-        IReadOnlyList<MemorySummaryDto>? profile = null;
-        if (includeProfile)
-        {
-            var recent = await memoryRepository.ListRecentActiveAsync(grant.SpaceId, ProfileTake, cancellationToken);
-            profile = recent.Select(ToSummary).ToList();
-        }
+        var profile = includeProfile ? await GetProfileAsync(grant, cancellationToken) : null;
 
         return new SearchMemoryResult(matches, profile);
+    }
+
+    public async Task<IReadOnlyList<MemorySummaryDto>> GetProfileAsync(
+        string? containerTag, CancellationToken cancellationToken = default) =>
+        await GetProfileAsync(RequireAccess(containerTag, AccessLevel.Read), cancellationToken);
+
+    private async Task<IReadOnlyList<MemorySummaryDto>> GetProfileAsync(SpaceGrant grant, CancellationToken cancellationToken)
+    {
+        var recent = await memoryRepository.ListRecentActiveAsync(grant.SpaceId, ProfileTake, cancellationToken);
+        return recent.Select(ToSummary).ToList();
     }
 
     public async Task<AddMemoryResult> AddMemoryAsync(
@@ -107,62 +112,90 @@ public sealed class MemoryService(
         var contentEmbedding = await embeddingProvider.EmbedAsync(content, cancellationToken);
 
         IReadOnlyList<ExtractedFact> facts;
-        IReadOnlyDictionary<Guid, Memory> candidatesById;
+        IReadOnlyDictionary<Guid, MemorySearchHit> candidatesById;
         try
         {
-            var candidateHits = await memoryRepository.SearchAsync(spaceId, contentEmbedding, ExtractionCandidateTopK, category: null, cancellationToken);
-            candidatesById = candidateHits.ToDictionary(h => h.Memory.Id, h => h.Memory);
+            var candidateHits = await memoryRepository.SearchAsync(spaceId, contentEmbedding, ExtractionCandidateTopK, category, cancellationToken);
+            candidatesById = candidateHits.ToDictionary(h => h.Memory.Id);
 
             var candidates = candidateHits.Select(h => new MemoryCandidateDto(h.Memory.Id, h.Memory.Text, h.Memory.Category)).ToList();
             facts = await factExtractor.ExtractAsync(content, candidates, cancellationToken);
         }
-        catch (ExtractorNotConfiguredException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Covers both "no extractor configured" and any other extraction failure (LLM outage, rate
+            // limit, malformed/refused response): degrade to the pre-graph-memory single-memory save
+            // below rather than fail a call that used to always succeed.
             facts = [];
-            candidatesById = new Dictionary<Guid, Memory>();
+            candidatesById = new Dictionary<Guid, MemorySearchHit>();
         }
 
         if (facts.Count == 0)
         {
-            // Extraction unconfigured (or returned nothing usable): fall back to saving the whole content
-            // as a single memory, exactly as before graph memory existed. Zero edges created.
+            // Extraction unconfigured/failed (or returned nothing usable): fall back to saving the whole
+            // content as a single memory, exactly as before graph memory existed. Zero edges created.
             var memory = new Memory(spaceId, content, contentEmbedding, document.Id, category);
             memoryRepository.Add(memory);
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
 
-            return new AddMemoryResult(memory.Id, MemoryAction.Save, 1, "Memory saved.");
+            return new AddMemoryResult(memory.Id, MemoryAction.Save, 1, "Memory saved.", [memory.Id]);
         }
 
-        Guid? firstMemoryId = null;
-        foreach (var fact in facts)
+        var factEmbeddings = await EmbedFactTextsAsync(facts, content, contentEmbedding, cancellationToken);
+
+        var memoryIds = new List<Guid>();
+        var forgottenCount = 0;
+        for (var i = 0; i < facts.Count; i++)
         {
-            var factEmbedding = await embeddingProvider.EmbedAsync(fact.Text, cancellationToken);
-            var factMemory = new Memory(spaceId, fact.Text, factEmbedding, document.Id, fact.Category ?? category);
+            var fact = facts[i];
+            var factMemory = new Memory(spaceId, fact.Text, factEmbeddings[i], document.Id, fact.Category ?? category);
             memoryRepository.Add(factMemory);
-            firstMemoryId ??= factMemory.Id;
+            memoryIds.Add(factMemory.Id);
 
             foreach (var relation in fact.RelationsToExisting)
             {
-                if (!candidatesById.TryGetValue(relation.ExistingMemoryId, out var existingMemory))
+                if (!candidatesById.TryGetValue(relation.ExistingMemoryId, out var existingHit))
                 {
                     // Ignore relations pointing at memories that weren't in the supplied candidates
                     // (e.g. a hallucinated id) rather than risk a foreign key violation.
                     continue;
                 }
 
-                memoryEdgeRepository.Add(new MemoryEdge(spaceId, factMemory.Id, existingMemory.Id, relation.RelationType));
+                memoryEdgeRepository.Add(new MemoryEdge(spaceId, factMemory.Id, existingHit.Memory.Id, relation.RelationType));
 
-                if (relation.RelationType == RelationType.Updates)
+                // Require the same similarity confidence as an explicit forget before an LLM-classified
+                // "Updates" relation is allowed to deactivate a memory, so a hallucinated/misclassified
+                // relation to a loosely-related candidate can't silently erase it.
+                if (relation.RelationType == RelationType.Updates && existingHit.Score >= ForgetSimilarityThreshold)
                 {
-                    existingMemory.Forget(supersededBy: factMemory.Id);
+                    existingHit.Memory.Forget(supersededBy: factMemory.Id);
+                    forgottenCount++;
                 }
             }
         }
 
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return new AddMemoryResult(firstMemoryId, MemoryAction.Save, facts.Count, $"Saved {facts.Count} extracted memory(ies).");
+        var message = forgottenCount > 0
+            ? $"Saved {facts.Count} extracted memory(ies) ({forgottenCount} superseded existing memory(ies))."
+            : $"Saved {facts.Count} extracted memory(ies).";
+
+        return new AddMemoryResult(memoryIds[0], MemoryAction.Save, facts.Count, message, memoryIds);
+    }
+
+    // Batches embedding calls for extracted facts instead of one round trip per fact, and reuses the
+    // already-computed content embedding for the common case where a fact's text is the content verbatim.
+    private async Task<IReadOnlyList<float[]>> EmbedFactTextsAsync(
+        IReadOnlyList<ExtractedFact> facts, string content, float[] contentEmbedding, CancellationToken cancellationToken)
+    {
+        var toEmbed = facts.Where(f => f.Text != content).Select(f => f.Text).ToList();
+        IReadOnlyList<float[]> embedded = toEmbed.Count > 0
+            ? await embeddingProvider.EmbedBatchAsync(toEmbed, cancellationToken)
+            : [];
+
+        var queue = new Queue<float[]>(embedded);
+        return facts.Select(f => f.Text == content ? contentEmbedding : queue.Dequeue()).ToList();
     }
 
     private async Task<AddMemoryResult> ForgetAsync(Guid spaceId, string content, CancellationToken cancellationToken)

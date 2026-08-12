@@ -24,5 +24,5 @@ public interface IMemoryRepository
         Guid spaceId, int take, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<Memory>> GetByIdsAsync(
-        IReadOnlyList<Guid> ids, CancellationToken cancellationToken = default);
+        Guid spaceId, IReadOnlyList<Guid> ids, CancellationToken cancellationToken = default);
 }

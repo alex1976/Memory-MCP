@@ -25,7 +25,7 @@
 [CmdletBinding()]
 param(
     [switch]$Force,
-    [bool]$Seed = $true
+    [switch]$Seed = $true
 )
 
 $ErrorActionPreference = "Stop"
