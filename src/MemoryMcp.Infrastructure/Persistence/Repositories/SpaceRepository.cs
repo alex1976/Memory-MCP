@@ -1,10 +1,14 @@
 using MemoryMcp.Application.Abstractions;
+using MemoryMcp.Domain;
 using Microsoft.EntityFrameworkCore;
 
 namespace MemoryMcp.Infrastructure.Persistence.Repositories;
 
 public sealed class SpaceRepository(MemoryDbContext dbContext) : ISpaceRepository
 {
+    public async Task<IReadOnlyList<ApiKeySpaceGrant>> GetGrantsForApiKeyAsync(Guid apiKeyId, CancellationToken cancellationToken = default) =>
+        await dbContext.ApiKeySpaceGrants.Where(g => g.ApiKeyId == apiKeyId).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<SpaceCounts>> GetCountsAsync(
         IReadOnlyList<Guid> spaceIds, CancellationToken cancellationToken = default)
     {

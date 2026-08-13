@@ -2,6 +2,7 @@ using System.ClientModel;
 using Azure;
 using Azure.AI.OpenAI;
 using MemoryMcp.Application.Abstractions;
+using MemoryMcp.Infrastructure.Documents;
 using MemoryMcp.Infrastructure.Embeddings;
 using MemoryMcp.Infrastructure.Extraction;
 using MemoryMcp.Infrastructure.Persistence;
@@ -31,6 +32,10 @@ public static class DependencyInjection
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IMemoryRepository, MemoryRepository>();
         services.AddScoped<IMemoryEdgeRepository, MemoryEdgeRepository>();
+
+        // No external service/API key needed (pure in-process parsing), so this is always registered
+        // unconditionally — unlike the embedding/extraction clients below.
+        services.AddScoped<IPdfTextExtractor, PdfTextExtractor>();
 
         services.Configure<EmbeddingOptions>(configuration.GetSection(EmbeddingOptions.SectionName));
 

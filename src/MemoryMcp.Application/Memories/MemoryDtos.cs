@@ -19,3 +19,9 @@ public sealed record MemorySearchResultDto(
 public sealed record SearchMemoryResult(IReadOnlyList<MemorySearchResultDto> Matches, IReadOnlyList<MemorySummaryDto>? Profile);
 
 public sealed record AddMemoryResult(Guid? MemoryId, MemoryAction Action, int AffectedCount, string Message, IReadOnlyList<Guid>? MemoryIds = null);
+
+public sealed record GraphNodeDto(Guid Id, string Text, string? Category, bool IsActive, DateTimeOffset CreatedAt);
+
+public sealed record GraphEdgeDto(Guid FromMemoryId, Guid ToMemoryId, RelationType RelationType);
+
+public sealed record SpaceGraphDto(IReadOnlyList<GraphNodeDto> Nodes, IReadOnlyList<GraphEdgeDto> Edges);

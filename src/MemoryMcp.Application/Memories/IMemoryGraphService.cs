@@ -6,4 +6,9 @@ public interface IMemoryGraphService
 {
     Task<IReadOnlyList<RelatedMemoryDto>> GetRelatedAsync(
         Guid rootMemoryId, Guid spaceId, int maxHops = 2, CancellationToken cancellationToken = default);
+
+    /// <summary>Whole-space view (as opposed to <see cref="GetRelatedAsync"/>'s single-root neighborhood):
+    /// the most recent <paramref name="maxNodes"/> memories (any status) plus the edges between them,
+    /// for the memory-graph widget.</summary>
+    Task<SpaceGraphDto> GetSpaceGraphAsync(Guid spaceId, int maxNodes = 50, CancellationToken cancellationToken = default);
 }

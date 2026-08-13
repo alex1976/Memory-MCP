@@ -23,4 +23,9 @@ public interface IMemoryService
     /// resource) that want it without also running a search.</summary>
     Task<IReadOnlyList<MemorySummaryDto>> GetProfileAsync(
         string? containerTag, CancellationToken cancellationToken = default);
+
+    /// <summary>Nodes (memories, any status) and typed edges for a space, for the memory-graph widget
+    /// and the <c>memory-mcp://graph</c> resource.</summary>
+    Task<SpaceGraphDto> GetSpaceGraphAsync(
+        string? containerTag, CancellationToken cancellationToken = default);
 }

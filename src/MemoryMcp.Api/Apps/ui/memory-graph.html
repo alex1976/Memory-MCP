@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memory Graph</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --surface: #252526; --surface2: #2d2d30;
+    --border: #3c3c3c; --text: #cccccc; --muted: #858585;
+    --accent: #0078d4; --success: #4ec9b0; --warning: #ddb76f; --danger: #f14c4c;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --updates: #f14c4c; --extends: #0078d4; --derives: #4ec9b0;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #ffffff; --surface: #f8f8f8; --surface2: #f0f0f0; --border: #e0e0e0; --text: #1e1e1e; --muted: #666666; }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { font: 12px/1.5 var(--font); background: var(--bg); color: var(--text); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .header { display: flex; justify-content: space-between; align-items: center; }
+  .title { font-size: 14px; font-weight: 600; }
+  .legend { display: flex; gap: 12px; font-size: 10px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .canvas-wrap { flex: 1; position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; min-height: 260px; }
+  canvas { width: 100%; height: 100%; display: block; cursor: grab; }
+  .tooltip { position: absolute; max-width: 220px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 11px; pointer-events: none; display: none; }
+  .status-bar { font-size: 10px; color: var(--muted); }
+  .status-bar.error { color: var(--danger); }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">🕸️ Memory Graph</div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--updates)"></i>Updates</span>
+      <span><i class="swatch" style="background:var(--extends)"></i>Extends</span>
+      <span><i class="swatch" style="background:var(--derives)"></i>Derives</span>
+    </div>
+  </div>
+  <div class="canvas-wrap" id="canvasWrap">
+    <canvas id="graphCanvas"></canvas>
+    <div class="tooltip" id="tooltip"></div>
+  </div>
+  <div class="status-bar" id="statusBar">Ready</div>
+
+  <script>
+    const RELATION_COLORS = { Updates: '#f14c4c', Extends: '#0078d4', Derives: '#4ec9b0' };
+    let nodes = [];
+    let edges = [];
+    let width = 0, height = 0;
+    const canvas = document.getElementById('graphCanvas');
+    const ctx = canvas.getContext('2d');
+    const tooltip = document.getElementById('tooltip');
+
+    function resizeCanvas() {
+      const wrap = document.getElementById('canvasWrap');
+      width = wrap.clientWidth;
+      height = wrap.clientHeight;
+      canvas.width = width * devicePixelRatio;
+      canvas.height = height * devicePixelRatio;
+      canvas.style.width = width + 'px';
+      canvas.style.height = height + 'px';
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    function layoutNodes(rawNodes) {
+      const n = rawNodes.length;
+      return rawNodes.map((node, i) => {
+        const angle = (2 * Math.PI * i) / Math.max(n, 1);
+        const radius = Math.min(width, height) * 0.35;
+        return {
+          ...node,
+          x: width / 2 + radius * Math.cos(angle) + (Math.random() - 0.5) * 10,
+          y: height / 2 + radius * Math.sin(angle) + (Math.random() - 0.5) * 10,
+          vx: 0, vy: 0,
+        };
+      });
+    }
+
+    // A few dozen lines of Fruchterman-Reingold-style force simulation — repulsion between all
+    // node pairs, attraction along edges, mild centering — settled over a fixed number of ticks
+    // rather than running indefinitely, since this is a static snapshot, not a live-updating graph.
+    function simulate(nodeList, edgeList, ticks) {
+      const byId = new Map(nodeList.map(n => [n.id, n]));
+      const repulsion = 2200;
+      const springLength = 90;
+      const springStrength = 0.02;
+      const centerStrength = 0.01;
+
+      for (let t = 0; t < ticks; t++) {
+        for (let i = 0; i < nodeList.length; i++) {
+          for (let j = i + 1; j < nodeList.length; j++) {
+            const a = nodeList[i], b = nodeList[j];
+            let dx = a.x - b.x, dy = a.y - b.y;
+            let distSq = dx * dx + dy * dy || 0.01;
+            const force = repulsion / distSq;
+            const dist = Math.sqrt(distSq);
+            dx /= dist; dy /= dist;
+            a.vx += dx * force; a.vy += dy * force;
+            b.vx -= dx * force; b.vy -= dy * force;
+          }
+        }
+        for (const e of edgeList) {
+          const a = byId.get(e.fromMemoryId), b = byId.get(e.toMemoryId);
+          if (!a || !b) continue;
+          let dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+          const force = (dist - springLength) * springStrength;
+          dx /= dist; dy /= dist;
+          a.vx += dx * force; a.vy += dy * force;
+          b.vx -= dx * force; b.vy -= dy * force;
+        }
+        for (const node of nodeList) {
+          node.vx += (width / 2 - node.x) * centerStrength;
+          node.vy += (height / 2 - node.y) * centerStrength;
+          node.x += node.vx * 0.1;
+          node.y += node.vy * 0.1;
+          node.vx *= 0.85; node.vy *= 0.85;
+          node.x = Math.max(20, Math.min(width - 20, node.x));
+          node.y = Math.max(20, Math.min(height - 20, node.y));
+        }
+      }
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, width, height);
+      const byId = new Map(nodes.map(n => [n.id, n]));
+
+      for (const e of edges) {
+        const a = byId.get(e.fromMemoryId), b = byId.get(e.toMemoryId);
+        if (!a || !b) continue;
+        ctx.strokeStyle = RELATION_COLORS[e.relationType] || '#888';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      }
+
+      for (const node of nodes) {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, 8, 0, Math.PI * 2);
+        ctx.fillStyle = node.isActive ? '#0078d4' : '#555';
+        ctx.globalAlpha = node.isActive ? 1 : 0.5;
+        ctx.fill();
+        ctx.lineWidth = node === hoveredNode ? 2.5 : 1;
+        ctx.strokeStyle = '#fff';
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    let hoveredNode = null;
+    let dragNode = null;
+
+    function nodeAt(x, y) {
+      return nodes.find(n => Math.hypot(n.x - x, n.y - y) <= 9);
+    }
+
+    canvas.addEventListener('mousedown', (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+      dragNode = nodeAt(x, y);
+      canvas.style.cursor = dragNode ? 'grabbing' : 'grab';
+    });
+    canvas.addEventListener('mousemove', (ev) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+      if (dragNode) {
+        dragNode.x = x; dragNode.y = y;
+        dragNode.vx = 0; dragNode.vy = 0;
+        draw();
+        return;
+      }
+      const hit = nodeAt(x, y);
+      if (hit !== hoveredNode) {
+        hoveredNode = hit;
+        draw();
+      }
+      if (hit) {
+        tooltip.style.display = 'block';
+        tooltip.style.left = (x + 12) + 'px';
+        tooltip.style.top = (y + 12) + 'px';
+        const status = hit.isActive ? '' : ' (forgotten)';
+        tooltip.textContent = `${hit.text}${status}${hit.category ? ' · ' + hit.category : ''}`;
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+    window.addEventListener('mouseup', () => { dragNode = null; canvas.style.cursor = 'grab'; });
+
+    function setStatus(text, type) {
+      const el = document.getElementById('statusBar');
+      el.textContent = text;
+      el.className = 'status-bar' + (type ? ` ${type}` : '');
+    }
+
+    let nextRequestId = 1;
+    const pendingRequests = new Map();
+    function sendRequest(method, params) {
+      const id = nextRequestId++;
+      return new Promise((resolve, reject) => {
+        pendingRequests.set(id, { resolve, reject });
+        window.parent.postMessage({ jsonrpc: '2.0', id, method, params: params || {} }, '*');
+      });
+    }
+    function sendNotification(method, params) {
+      window.parent.postMessage({ jsonrpc: '2.0', method, params: params || {} }, '*');
+    }
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || msg.jsonrpc !== '2.0' || msg.id === undefined) return;
+      if (!pendingRequests.has(msg.id)) return;
+      const { resolve, reject } = pendingRequests.get(msg.id);
+      pendingRequests.delete(msg.id);
+      msg.error ? reject(new Error(msg.error.message || JSON.stringify(msg.error))) : resolve(msg.result);
+    });
+
+    async function initialize() {
+      resizeCanvas();
+      try {
+        setStatus('Connecting…');
+        await sendRequest('ui/initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'memory-graph', version: '1.0.0' } });
+        sendNotification('ui/notifications/initialized', {});
+
+        const res = await sendRequest('resources/read', { uri: 'memory-mcp://graph' });
+        const text = res?.contents?.[0]?.text;
+        const graph = text ? JSON.parse(text) : { nodes: [], edges: [] };
+
+        nodes = layoutNodes(graph.nodes || []);
+        edges = graph.edges || [];
+        simulate(nodes, edges, 220);
+        draw();
+        setStatus(`Ready — ${nodes.length} memory(ies), ${edges.length} edge(s).`);
+      } catch (e) {
+        setStatus('Standalone mode: ' + e.message, 'error');
+      }
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

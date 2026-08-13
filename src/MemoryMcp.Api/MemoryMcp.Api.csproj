@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Suppress the experimental-API warning for the MCP Apps extension (ModelContextProtocol.Extensions.Apps) -->
+    <NoWarn>$(NoWarn);MCPEXP003</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,11 +14,16 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="ModelContextProtocol.AspNetCore" Version="2.1.0" />
+    <PackageReference Include="ModelContextProtocol.Extensions.Apps" Version="2.1.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\MemoryMcp.Application\MemoryMcp.Application.csproj" />
     <ProjectReference Include="..\MemoryMcp.Infrastructure\MemoryMcp.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Apps\ui\*.html" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Upload File</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --surface: #252526; --surface2: #2d2d30;
+    --border: #3c3c3c; --text: #cccccc; --muted: #858585;
+    --accent: #0078d4; --success: #4ec9b0; --warning: #ddb76f; --danger: #f14c4c;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #ffffff; --surface: #f8f8f8; --surface2: #f0f0f0; --border: #e0e0e0; --text: #1e1e1e; --muted: #666666; }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font: 12px/1.5 var(--font); background: var(--bg); color: var(--text); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .title { font-size: 14px; font-weight: 600; }
+  .dropzone { border: 1px dashed var(--border); border-radius: 6px; padding: 16px; background: var(--surface); display: flex; flex-direction: column; gap: 8px; }
+  .field-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  input[type=file], select { padding: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font: inherit; width: 100%; }
+  .checkbox-row { display: flex; align-items: center; gap: 6px; }
+  .preview { max-height: 120px; overflow: auto; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 6px; font-family: 'SF Mono', Consolas, monospace; font-size: 10px; white-space: pre-wrap; }
+  .note { font-size: 10px; color: var(--warning); }
+  button { padding: 8px 16px; font: 12px var(--font); font-weight: 600; border: none; border-radius: 4px; cursor: pointer; align-self: flex-start; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #1c8ae6; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status-bar { font-size: 10px; color: var(--muted); }
+  .status-bar.error { color: var(--danger); }
+  .status-bar.success { color: var(--success); }
+</style>
+</head>
+<body>
+  <div class="title">📤 Upload File</div>
+  <div class="dropzone">
+    <span class="field-label">File</span>
+    <input type="file" id="fileInput" accept=".txt,.md,.markdown,.csv,.pdf,text/*,application/pdf">
+    <div class="note" id="typeNote"></div>
+    <div class="preview" id="preview" style="display:none;"></div>
+  </div>
+  <div class="field-label">Space</div>
+  <select id="spaceSelect"><option value="">Active space</option></select>
+  <div class="checkbox-row">
+    <input type="checkbox" id="alsoExtract" checked>
+    <label for="alsoExtract">Also extract memories from this content</label>
+  </div>
+  <button class="btn-primary" id="uploadBtn" onclick="upload()" disabled>Upload</button>
+  <div class="status-bar" id="statusBar">Ready</div>
+
+  <script>
+    const TEXT_LIKE_EXTENSIONS = ['txt', 'md', 'markdown', 'csv'];
+    // Content is either plain text (txt/md/csv, read client-side) or, for PDF, the base64-encoded
+    // bytes — create_document extracts the text server-side (via PdfPig) rather than the widget
+    // guessing at binary content in the browser.
+    let fileContent = null;
+    let fileName = null;
+    let fileDocType = null;
+    let fileIsPdf = false;
+
+    document.getElementById('fileInput').addEventListener('change', onFileSelected);
+
+    function extensionOf(name) {
+      const idx = name.lastIndexOf('.');
+      return idx === -1 ? '' : name.slice(idx + 1).toLowerCase();
+    }
+
+    function docTypeFor(ext) {
+      if (ext === 'md' || ext === 'markdown') return 'markdown';
+      if (ext === 'csv') return 'csv';
+      if (ext === 'pdf') return 'pdf';
+      return 'text';
+    }
+
+    function onFileSelected(event) {
+      const file = event.target.files[0];
+      const note = document.getElementById('typeNote');
+      const preview = document.getElementById('preview');
+      const uploadBtn = document.getElementById('uploadBtn');
+      fileContent = null;
+      fileIsPdf = false;
+      preview.style.display = 'none';
+      uploadBtn.disabled = true;
+
+      if (!file) return;
+
+      const ext = extensionOf(file.name);
+      const isTextLike = TEXT_LIKE_EXTENSIONS.includes(ext) || file.type.startsWith('text/');
+      const isPdf = ext === 'pdf' || file.type === 'application/pdf';
+
+      if (!isTextLike && !isPdf) {
+        note.textContent = `"." ${ext} isn't ingested yet — only text, Markdown, CSV, and PDF content is read in this version (Word/image/audio parsing is planned for a future phase). You can still pick a different file.`;
+        return;
+      }
+
+      note.textContent = '';
+      fileIsPdf = isPdf;
+      const reader = new FileReader();
+      reader.onerror = () => setStatus('Could not read the file.', 'error');
+
+      if (isPdf) {
+        reader.onload = () => {
+          // readAsDataURL yields "data:application/pdf;base64,JVBERi0...." — only the part after the
+          // comma is the base64 payload create_document expects.
+          fileContent = reader.result.split(',', 2)[1] || '';
+          fileName = file.name;
+          fileDocType = 'pdf';
+          preview.textContent = `PDF selected (${(file.size / 1024).toFixed(1)} KB) — text will be extracted after upload.`;
+          preview.style.display = 'block';
+          uploadBtn.disabled = false;
+          setStatus(`Loaded "${file.name}".`);
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      reader.onload = () => {
+        fileContent = reader.result;
+        fileName = file.name;
+        fileDocType = docTypeFor(ext);
+        preview.textContent = fileContent.length > 2000 ? fileContent.slice(0, 2000) + '…' : fileContent;
+        preview.style.display = 'block';
+        uploadBtn.disabled = false;
+        setStatus(`Loaded "${file.name}" (${fileContent.length} characters).`);
+      };
+      reader.readAsText(file);
+    }
+
+    let nextRequestId = 1;
+    const pendingRequests = new Map();
+    function sendRequest(method, params) {
+      const id = nextRequestId++;
+      return new Promise((resolve, reject) => {
+        pendingRequests.set(id, { resolve, reject });
+        window.parent.postMessage({ jsonrpc: '2.0', id, method, params: params || {} }, '*');
+      });
+    }
+    function sendNotification(method, params) {
+      window.parent.postMessage({ jsonrpc: '2.0', method, params: params || {} }, '*');
+    }
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || msg.jsonrpc !== '2.0' || msg.id === undefined) return;
+      if (!pendingRequests.has(msg.id)) return;
+      const { resolve, reject } = pendingRequests.get(msg.id);
+      pendingRequests.delete(msg.id);
+      msg.error ? reject(new Error(msg.error.message || JSON.stringify(msg.error))) : resolve(msg.result);
+    });
+
+    function setStatus(text, type) {
+      const el = document.getElementById('statusBar');
+      el.textContent = text;
+      el.className = 'status-bar' + (type ? ` ${type}` : '');
+    }
+
+    async function upload() {
+      if (!fileContent) return;
+      const uploadBtn = document.getElementById('uploadBtn');
+      const containerTag = document.getElementById('spaceSelect').value || undefined;
+      const alsoExtract = document.getElementById('alsoExtract').checked;
+
+      uploadBtn.disabled = true;
+      setStatus(fileIsPdf ? 'Uploading and extracting PDF text…' : 'Uploading…');
+      try {
+        const docArgs = { title: fileName, docType: fileDocType, content: fileContent };
+        if (containerTag) docArgs.containerTag = containerTag;
+
+        const docResult = await sendRequest('tools/call', { name: 'create_document', arguments: docArgs });
+        if (docResult?.isError) {
+          throw new Error(docResult.content?.find(c => c.text)?.text || 'Upload failed.');
+        }
+
+        let message = `Document "${fileName}" stored.`;
+        if (alsoExtract) {
+          // For PDF, create_document's response is the DocumentSummaryDto (no raw text) — the
+          // extracted text lives on the document itself, fetched back via getDocument. Text-like
+          // files already have their plain content in hand, so no extra round trip is needed.
+          let textForMemory = fileContent;
+          if (fileIsPdf) {
+            const docJson = docResult.content?.find(c => c.text)?.text;
+            const doc = docJson ? JSON.parse(docJson) : null;
+            if (doc?.id) {
+              const detailResult = await sendRequest('tools/call', { name: 'getDocument', arguments: { documentId: doc.id } });
+              const detailJson = detailResult.content?.find(c => c.text)?.text;
+              const detail = detailJson ? JSON.parse(detailJson) : null;
+              textForMemory = detail?.rawContent || '';
+            } else {
+              textForMemory = '';
+            }
+          }
+
+          if (!textForMemory) {
+            message += ' (no extractable text found — memory extraction skipped)';
+          } else {
+            const memArgs = { content: textForMemory, action: 'save' };
+            if (containerTag) memArgs.containerTag = containerTag;
+            const memResult = await sendRequest('tools/call', { name: 'add_memory', arguments: memArgs });
+            if (memResult?.isError) {
+              message += ' (memory extraction failed: ' + (memResult.content?.find(c => c.text)?.text || 'unknown error') + ')';
+            } else {
+              message += ' Memories extracted.';
+            }
+          }
+        }
+        setStatus(message, 'success');
+      } catch (e) {
+        setStatus('Error: ' + e.message, 'error');
+      } finally {
+        uploadBtn.disabled = !fileContent;
+      }
+    }
+
+    async function initialize() {
+      try {
+        setStatus('Connecting…');
+        await sendRequest('ui/initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'upload-file', version: '1.0.0' } });
+        sendNotification('ui/notifications/initialized', {});
+
+        const res = await sendRequest('resources/read', { uri: 'memory-mcp://spaces' });
+        const text = res?.contents?.[0]?.text;
+        const spaces = text ? JSON.parse(text) : [];
+        const select = document.getElementById('spaceSelect');
+        spaces.forEach((s) => {
+          const opt = document.createElement('option');
+          opt.value = s.key;
+          opt.textContent = `${s.name} (${s.key})${s.isDefault ? ' — active' : ''}`;
+          select.appendChild(opt);
+        });
+        setStatus(`Ready — ${spaces.length} space(s) available.`);
+      } catch (e) {
+        setStatus('Standalone mode: ' + e.message, 'error');
+      }
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

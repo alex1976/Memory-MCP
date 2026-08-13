@@ -27,4 +27,12 @@ public sealed class MemoryResources(IMemoryService memoryService)
             () => memoryService.ListMemoriesAsync(containerTag: null, page: 1, limit: MemoriesPageSize, cancellationToken));
         return JsonSerializer.Serialize(memories, McpJsonUtilities.DefaultOptions);
     }
+
+    [McpServerResource(UriTemplate = "memory-mcp://graph", Name = "graph", MimeType = "application/json")]
+    [Description("Nodes (memories, any status) and typed edges for the active space, for graph visualization.")]
+    public async Task<string> Graph(CancellationToken cancellationToken = default)
+    {
+        var graph = await McpExecution.RunAsync(() => memoryService.GetSpaceGraphAsync(containerTag: null, cancellationToken));
+        return JsonSerializer.Serialize(graph, McpJsonUtilities.DefaultOptions);
+    }
 }

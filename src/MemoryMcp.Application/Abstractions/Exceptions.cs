@@ -32,3 +32,12 @@ public sealed class ExtractorNotConfiguredException : Exception
     {
     }
 }
+
+/// <summary>Thrown when binary document content (e.g. a PDF) can't be decoded or its text extracted —
+/// surfaced as a tool error (not an unhandled exception) the same way <see cref="SpaceNotFoundException"/> is.</summary>
+public sealed class DocumentExtractionException : Exception
+{
+    public DocumentExtractionException(string message) : base(message)
+    {
+    }
+}

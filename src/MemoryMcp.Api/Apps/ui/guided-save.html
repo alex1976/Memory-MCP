@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guided Save</title>
+<style>
+  :root {
+    --bg: #1e1e1e; --surface: #252526; --surface2: #2d2d30;
+    --border: #3c3c3c; --text: #cccccc; --muted: #858585;
+    --accent: #0078d4; --success: #4ec9b0; --warning: #ddb76f; --danger: #f14c4c;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #ffffff; --surface: #f8f8f8; --surface2: #f0f0f0; --border: #e0e0e0; --text: #1e1e1e; --muted: #666666; }
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font: 12px/1.5 var(--font); background: var(--bg); color: var(--text); padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .title { font-size: 14px; font-weight: 600; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  textarea, select, input[type=text] { padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--text); font: inherit; width: 100%; resize: vertical; }
+  textarea:focus, select:focus, input:focus { outline: none; border-color: var(--accent); }
+  .row { display: flex; gap: 8px; }
+  .row .field { flex: 1; }
+  button { padding: 8px 16px; font: 12px var(--font); font-weight: 600; border: none; border-radius: 4px; cursor: pointer; align-self: flex-start; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #1c8ae6; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status-bar { font-size: 10px; color: var(--muted); }
+  .status-bar.error { color: var(--danger); }
+  .status-bar.success { color: var(--success); }
+</style>
+</head>
+<body>
+  <div class="title">📝 Guided Save</div>
+  <div class="field">
+    <span class="field-label">Content</span>
+    <textarea id="content" rows="6" placeholder="What do you want to remember?"></textarea>
+  </div>
+  <div class="row">
+    <div class="field">
+      <span class="field-label">Category (optional)</span>
+      <input type="text" id="category" placeholder="e.g. preference, project, contact">
+    </div>
+    <div class="field">
+      <span class="field-label">Space</span>
+      <select id="spaceSelect"><option value="">Active space</option></select>
+    </div>
+  </div>
+  <button class="btn-primary" id="saveBtn" onclick="save()" disabled>Save memory</button>
+  <div class="status-bar" id="statusBar">Ready</div>
+
+  <script>
+    const contentEl = document.getElementById('content');
+    const saveBtn = document.getElementById('saveBtn');
+    contentEl.addEventListener('input', () => { saveBtn.disabled = contentEl.value.trim() === ''; });
+
+    let nextRequestId = 1;
+    const pendingRequests = new Map();
+    function sendRequest(method, params) {
+      const id = nextRequestId++;
+      return new Promise((resolve, reject) => {
+        pendingRequests.set(id, { resolve, reject });
+        window.parent.postMessage({ jsonrpc: '2.0', id, method, params: params || {} }, '*');
+      });
+    }
+    function sendNotification(method, params) {
+      window.parent.postMessage({ jsonrpc: '2.0', method, params: params || {} }, '*');
+    }
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || msg.jsonrpc !== '2.0' || msg.id === undefined) return;
+      if (!pendingRequests.has(msg.id)) return;
+      const { resolve, reject } = pendingRequests.get(msg.id);
+      pendingRequests.delete(msg.id);
+      msg.error ? reject(new Error(msg.error.message || JSON.stringify(msg.error))) : resolve(msg.result);
+    });
+
+    function setStatus(text, type) {
+      const el = document.getElementById('statusBar');
+      el.textContent = text;
+      el.className = 'status-bar' + (type ? ` ${type}` : '');
+    }
+
+    async function save() {
+      const content = contentEl.value.trim();
+      if (!content) return;
+      const category = document.getElementById('category').value.trim() || undefined;
+      const containerTag = document.getElementById('spaceSelect').value || undefined;
+
+      saveBtn.disabled = true;
+      setStatus('Saving…');
+      try {
+        const args = { content, action: 'save' };
+        if (category) args.category = category;
+        if (containerTag) args.containerTag = containerTag;
+
+        const result = await sendRequest('tools/call', { name: 'add_memory', arguments: args });
+        if (result?.isError) {
+          const text = result.content?.find(c => c.text)?.text || 'Save failed.';
+          throw new Error(text);
+        }
+        setStatus('Memory saved.', 'success');
+        contentEl.value = '';
+        document.getElementById('category').value = '';
+      } catch (e) {
+        setStatus('Error: ' + e.message, 'error');
+      } finally {
+        saveBtn.disabled = contentEl.value.trim() === '';
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text ?? '';
+      return div.innerHTML;
+    }
+
+    async function initialize() {
+      try {
+        setStatus('Connecting…');
+        await sendRequest('ui/initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'guided-save', version: '1.0.0' } });
+        sendNotification('ui/notifications/initialized', {});
+
+        const res = await sendRequest('resources/read', { uri: 'memory-mcp://spaces' });
+        const text = res?.contents?.[0]?.text;
+        const spaces = text ? JSON.parse(text) : [];
+        const select = document.getElementById('spaceSelect');
+        spaces.forEach((s) => {
+          const opt = document.createElement('option');
+          opt.value = s.key;
+          opt.textContent = `${s.name} (${s.key})${s.isDefault ? ' — active' : ''}`;
+          select.appendChild(opt);
+        });
+        setStatus(`Ready — ${spaces.length} space(s) available.`);
+      } catch (e) {
+        setStatus('Standalone mode: ' + e.message, 'error');
+      }
+    }
+
+    initialize();
+  </script>
+</body>
+</html>

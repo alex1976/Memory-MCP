@@ -279,6 +279,7 @@
       <a href="#architecture">Architecture</a>
       <a href="#tools">Tools</a>
       <a href="#resources">Resources</a>
+      <a href="#widgets">Widgets</a>
       <a href="#stack">Stack</a>
       <a href="#phases">Phases</a>
       <a href="#setup">Setup</a>
@@ -342,9 +343,9 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="arch-layer api">
         <div>
           <div class="name">MemoryMcp.Api</div>
-          <div class="desc">ASP.NET Core host · API Key authentication · 7 tools, 3 resources, 1 prompt (thin adapters)</div>
+          <div class="desc">ASP.NET Core host · API Key authentication · 9 tools, 4 resources, 1 prompt, 4 MCP Apps widgets (thin adapters)</div>
         </div>
-        <span class="tag">ModelContextProtocol.AspNetCore</span>
+        <span class="tag">ModelContextProtocol.AspNetCore · Extensions.Apps</span>
       </div>
       <div class="arch-arrow">↓ depends on</div>
       <div class="arch-layer">
@@ -396,7 +397,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
   <div class="wrap">
     <div class="section-head">
       <p class="eyebrow">MCP Tools</p>
-      <h2>7 tools, consistent with the spec</h2>
+      <h2>9 tools — 7 from the spec, 2 backing the widgets</h2>
       <p class="lede">Every tool is a thin adapter: it resolves the access context, calls the application service, and formats the output.</p>
     </div>
     <div class="tools-grid">
@@ -421,12 +422,20 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         <p>Metadata and available content of a single document.</p>
       </div>
       <div class="tool-card">
+        <div class="head"><span class="tool-name">create_document</span><span class="access readwrite">ReadWrite</span></div>
+        <p>Stores content as a new document (text/Markdown/CSV/PDF in this version — PDF bytes are base64, extracted to text server-side via PdfPig) — source-of-truth storage only, no fact extraction. Backs the <code>upload-file</code> widget.</p>
+      </div>
+      <div class="tool-card">
         <div class="head"><span class="tool-name">listSpaces</span><span class="access none">—</span></div>
         <p>Spaces accessible with the current API Key, with access level and counts.</p>
       </div>
       <div class="tool-card">
         <div class="head"><span class="tool-name">whoAmI</span><span class="access none">—</span></div>
         <p>Current identity, accessible spaces, active space.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">setActiveSpace</span><span class="access none">—</span></div>
+        <p>Sets which of the current API Key's accessible spaces is active (default). Backs the <code>select-space</code> widget.</p>
       </div>
     </div>
   </div>
@@ -436,7 +445,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
   <div class="wrap">
     <div class="section-head">
       <p class="eyebrow">MCP Resources &amp; Prompt · Phase 3</p>
-      <h2>3 resources, 1 prompt — same services, no new tool contract</h2>
+      <h2>4 resources, 1 prompt — same services, no new tool contract</h2>
       <p class="lede">For clients that support the Resources/Prompts primitives: thin adapters over the exact same
         <code>Application</code> services the tools call, so profile/space context stays consistent everywhere.</p>
     </div>
@@ -454,9 +463,49 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         <p>First page of the active space's memories (any status) — same shape as <code>listMemories</code>.</p>
       </div>
       <div class="tool-card">
+        <div class="head"><span class="tool-name">memory-mcp://graph</span><span class="access read">Resource</span></div>
+        <p>Nodes (memories, any status) and typed edges for the active space — feeds the <code>memory-graph</code> widget's visualization.</p>
+      </div>
+      <div class="tool-card">
         <div class="head"><span class="tool-name">context</span><span class="access none">Prompt</span></div>
         <p>A ready-to-attach text message: the active space's profile, plus up to 3 other spaces ranked by their most recent memory.</p>
       </div>
+    </div>
+  </div>
+</section>
+
+<section id="widgets">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="eyebrow">MCP Apps · Phase 3</p>
+      <h2>4 interactive widgets, rendered inside the conversation</h2>
+      <p class="lede">Via the experimental <code>ModelContextProtocol.Extensions.Apps</code> package: each widget is an
+        HTML resource opened by a tool, driven from inside its iframe by ordinary <code>tools/call</code> and
+        <code>resources/read</code> requests over a small <code>postMessage</code> JSON-RPC bridge — no
+        widget-specific business logic beyond that bridge.</p>
+    </div>
+    <div class="tools-grid">
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">select-space</span><span class="access none">Widget</span></div>
+        <p>Lists accessible spaces and switches the active one via <code>setActiveSpace</code>.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">guided-save</span><span class="access none">Widget</span></div>
+        <p>Editable content/category/space form that calls <code>add_memory</code>.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">upload-file</span><span class="access none">Widget</span></div>
+        <p>Local file picker that calls <code>create_document</code>, then optionally <code>add_memory</code> with the extracted text. Text/Markdown/CSV/PDF are fully ingested; Word/image/audio parsing is deferred.</p>
+      </div>
+      <div class="tool-card">
+        <div class="head"><span class="tool-name">memory-graph</span><span class="access none">Widget</span></div>
+        <p>Reads <code>memory-mcp://graph</code> and renders it with a small hand-rolled force-directed layout — no CDN dependency.</p>
+      </div>
+    </div>
+    <div class="arch-note" style="margin-top:24px;">
+      <strong>Note:</strong> full interactive rendering requires an MCP Apps-capable host (e.g. Claude Desktop/VS Code
+      with Apps support). Any MCP client can still list/call the four opener tools and read the <code>ui://*</code>
+      resources to confirm they're registered and serving HTML.
     </div>
   </div>
 </section>
@@ -471,10 +520,11 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <thead><tr><th>Layer</th><th>Technology</th></tr></thead>
       <tbody>
         <tr><td>Runtime</td><td><code>.NET 10</code>, pinned in <code>global.json</code></td></tr>
-        <tr><td>MCP Server</td><td><code>ModelContextProtocol</code> / <code>ModelContextProtocol.AspNetCore</code> 2.1.0</td></tr>
+        <tr><td>MCP Server</td><td><code>ModelContextProtocol</code> / <code>ModelContextProtocol.AspNetCore</code> 2.1.0 + <code>ModelContextProtocol.Extensions.Apps</code></td></tr>
         <tr><td>Web host</td><td>ASP.NET Core Minimal API</td></tr>
         <tr><td>Persistence</td><td>PostgreSQL + EF Core 10 (<code>Npgsql.EntityFrameworkCore.PostgreSQL</code>)</td></tr>
         <tr><td>Embedding</td><td><code>OpenAI</code> / <code>Azure.AI.OpenAI</code> / <code>Gemini</code>, same <code>EmbeddingClient</code></td></tr>
+        <tr><td>PDF text extraction</td><td><code>PdfPig</code> (pure managed, no native/external dependency)</td></tr>
         <tr><td>Authentication</td><td>Custom scheme based on API Key (SHA-256 hash)</td></tr>
         <tr><td>Tests</td><td>xUnit · NSubstitute · AwesomeAssertions · <code>Microsoft.AspNetCore.Mvc.Testing</code></td></tr>
         <tr><td>Container</td><td>Multi-stage Dockerfile + docker-compose</td></tr>
@@ -514,13 +564,13 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         </ul>
       </div>
       <div class="phase-card done">
-        <span class="phase-badge done">Phase 3 — Completed (widgets not implemented)</span>
-        <h3>Resources and prompt</h3>
+        <span class="phase-badge done">Phase 3 — Completed</span>
+        <h3>Resources, prompt &amp; MCP Apps widgets</h3>
         <ul class="checklist done">
-          <li><span class="mark">✓</span><span class="text">MCP Resources: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code>, <code>memory-mcp://memories</code></span></li>
+          <li><span class="mark">✓</span><span class="text">MCP Resources: <code>memory-mcp://profile</code>, <code>memory-mcp://spaces</code>, <code>memory-mcp://memories</code>, <code>memory-mcp://graph</code></span></li>
           <li><span class="mark">✓</span><span class="text">MCP Prompt: <code>context</code>, ranking up to 3 other spaces by recent activity</span></li>
-          <li><span class="mark">✓</span><span class="text">Test suite extended end-to-end via the MCP client's resource/prompt calls</span></li>
-          <li><span class="mark" style="color: var(--text-faint);">○</span><span class="text">MCP Apps widgets: select-space, guided-save, upload-file, memory-graph — left for a future phase</span></li>
+          <li><span class="mark">✓</span><span class="text">MCP Apps widgets: select-space, guided-save, upload-file, memory-graph</span></li>
+          <li><span class="mark">✓</span><span class="text">Test suite extended end-to-end via the MCP client's resource/prompt/tool calls</span></li>
         </ul>
       </div>
       <div class="phase-card next">
@@ -529,6 +579,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         <ul class="checklist next">
           <li><span class="mark">○</span><span class="text">Review project for introducing a real graph DB (Neo4j)</span></li>
           <li><span class="mark">○</span><span class="text">Reintroducing <code>Qdrant</code> with a native HNSW index as the vector DB</span></li>
+          <li><span class="mark">○</span><span class="text">Word text extraction and image OCR/audio transcription for <code>upload-file</code></span></li>
         </ul>
       </div>
     </div>

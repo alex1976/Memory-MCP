@@ -17,7 +17,7 @@ internal static class McpExecution
         {
             return await operation();
         }
-        catch (Exception ex) when (ex is SpaceNotFoundException or AccessDeniedException or EntityNotFoundException)
+        catch (Exception ex) when (ex is SpaceNotFoundException or AccessDeniedException or EntityNotFoundException or DocumentExtractionException)
         {
             throw new McpException(ex.Message);
         }

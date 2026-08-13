@@ -14,6 +14,7 @@ Full functional specification: [CLAUDE.md](CLAUDE.md).
 - [Data model](#data-model)
 - [Available MCP tools](#available-mcp-tools)
 - [Available MCP resources and prompts](#available-mcp-resources-and-prompts)
+- [MCP Apps widgets](#mcp-apps-widgets)
 - [Project phases](#project-phases)
 - [Setup and startup](#setup-and-startup)
 - [Tests](#tests)
@@ -34,18 +35,18 @@ Memory-MCP/
 │   ├── MemoryMcp.Infrastructure/   # EF Core (MemoryDbContext, migrations, repositories), embedding
 │   │                              # provider (OpenAI/Azure OpenAI/Gemini) and fact extractor for graph memory.
 │   └── MemoryMcp.Api/             # ASP.NET Core host: MCP hosting, API Key authentication,
-│                                  # the 7 MCP tools (thin adapters with no business logic).
+│                                  # MCP tools/resources/prompts (thin adapters) and the MCP Apps widgets (Apps/).
 └── tests/
     ├── MemoryMcp.Application.Tests/    # Unit tests for the application services (mock/NSubstitute)
     ├── MemoryMcp.Infrastructure.Tests/ # Integration tests for the repositories against a real Postgres
-    └── MemoryMcp.Api.Tests/            # End-to-end tests for the 7 tools via an MCP client + WebApplicationFactory
+    └── MemoryMcp.Api.Tests/            # End-to-end tests for tools/resources/prompts/widgets via an MCP client + WebApplicationFactory
 ```
 
 **Why Clean Architecture and not Vertical Slice**: all tools share the same data model
 (Space/ApiKey/Memory/Document) and the same per-space authorization rules; isolating EF persistence
-and the embedding provider behind interfaces in `Application` allows the project to be extended (resources,
-prompts, MCP Apps widgets — Phase 3) with at most small, additive `Application` service methods and no
-changes to `Domain`.
+and the embedding provider behind interfaces in `Application` let the project be extended in later
+phases (resources, prompts, MCP Apps widgets) with at most small, additive `Application` service
+methods and no changes to `Domain`.
 
 Every class in `Api/Tools` is a **thin adapter**: it resolves the access context (`ICurrentAccessContext`),
 calls the application service, and formats the output — no business logic in the Api layer.
@@ -119,11 +120,12 @@ configuration alone.
 | Layer | Technology |
 | --- | --- |
 | Runtime | .NET 10 (pinned in [global.json](global.json)) |
-| MCP Server | `ModelContextProtocol` / `ModelContextProtocol.AspNetCore` 2.1.0 |
+| MCP Server | `ModelContextProtocol` / `ModelContextProtocol.AspNetCore` 2.1.0 + `ModelContextProtocol.Extensions.Apps` (MCP Apps widgets) |
 | Web host | ASP.NET Core Minimal API |
 | Persistence | PostgreSQL + EF Core 10 (`Npgsql.EntityFrameworkCore.PostgreSQL`) |
 | Embedding | `OpenAI` / `Azure.AI.OpenAI` (same `EmbeddingClient`, selected via configuration; also backs Gemini's OpenAI-compatible endpoint) |
 | Fact extraction | Same `OpenAI` SDK's `ChatClient`, JSON Schema structured output (OpenAI / Azure OpenAI / Gemini / self-hosted OpenAI-compatible) |
+| PDF text extraction | `PdfPig` (pure managed, no native dependencies or external service) |
 | Authentication | Custom `AuthenticationHandler<T>` scheme based on API Key (SHA-256 hash) |
 | Tests | xUnit, NSubstitute, AwesomeAssertions (MIT fork of FluentAssertions), `Microsoft.AspNetCore.Mvc.Testing` |
 | Container | Multi-stage Dockerfile + docker-compose (for environments where Docker is available) |
@@ -141,9 +143,12 @@ configuration alone.
 
 ## Available MCP tools
 
-All 7 tools required by the specification are implemented in `src/MemoryMcp.Api/Tools`. `search_memory`
+The 7 tools required by the specification are implemented in `src/MemoryMcp.Api/Tools`. `search_memory`
 and `add_memory` are enriched by graph memory (related memories on search results, multi-fact
-extraction on save) without any change to their tool contract — no new tool was added for this:
+extraction on save) without any change to their tool contract — no new tool was added for this.
+Phase 3 additionally introduced two small, additive tools (`setActiveSpace`, `create_document`) that
+back the MCP Apps widgets below, plus four `*_ui` tools whose only job is to open a widget (see
+"MCP Apps widgets"):
 
 | Tool | File | Access required | Description |
 | --- | --- | --- | --- |
@@ -151,13 +156,15 @@ extraction on save) without any change to their tool contract — no new tool wa
 | `add_memory` | `MemoryTools.cs` | ReadWrite | Saves (`action=save`, with optional `category`) or removes (`action=forget`) a memory; saving extracts atomic facts and links them to related existing memories as graph edges |
 | `listDocuments` | `DocumentTools.cs` | Read | Paginated list of a space's source documents |
 | `getDocument` | `DocumentTools.cs` | Read | Metadata and content of a document |
+| `create_document` | `DocumentTools.cs` | ReadWrite | Stores content as a new document (text/Markdown/CSV/PDF in this version — PDF content is base64 bytes, extracted to text server-side) — source-of-truth storage only, does not run fact extraction |
 | `listMemories` | `MemoryTools.cs` | Read | Paginated list of extracted memories |
 | `listSpaces` | `AccessTools.cs` | — | Spaces accessible with the current API Key, with counts |
 | `whoAmI` | `AccessTools.cs` | — | Current identity, accessible spaces, active space |
+| `setActiveSpace` | `AccessTools.cs` | — | Sets which of the current API key's accessible spaces is active (default) |
 
 ## Available MCP resources and prompts
 
-For clients that support them (Phase 3, see below) — implemented in `src/MemoryMcp.Api/Resources` and
+For clients that support them — implemented in `src/MemoryMcp.Api/Resources` and
 `src/MemoryMcp.Api/Prompts`, both thin adapters over the same `Application` services the tools use:
 
 | Kind | URI / Name | File | Description |
@@ -165,12 +172,56 @@ For clients that support them (Phase 3, see below) — implemented in `src/Memor
 | Resource | `memory-mcp://profile` | `MemoryResources.cs` | Recent-active-memories profile context for the active space (the same set `search_memory`'s `includeProfile` attaches) |
 | Resource | `memory-mcp://spaces` | `AccessResources.cs` | The same compact space list as `listSpaces`, with the active space marked |
 | Resource | `memory-mcp://memories` | `MemoryResources.cs` | First page of the active space's memories (any status), same shape as `listMemories` |
+| Resource | `memory-mcp://graph` | `MemoryResources.cs` | Nodes (memories, any status) and typed edges for the active space, for the `memory-graph` widget |
 | Prompt | `context` | `ContextPrompt.cs` | A ready-to-attach text message: the active space's profile, plus up to 3 other spaces ranked by their most recent memory |
 
-All three resources are fixed (non-templated) URIs scoped to the API key's active space; none take
-arguments. `IMemoryService.GetProfileAsync` is the one small additive `Application` method this phase
-introduced — it's the profile-fetch logic already used by `search_memory`, extracted so it can be called
-on its own instead of only alongside a search.
+These four resources are fixed (non-templated) URIs scoped to the API key's active space; none take
+arguments. `IMemoryService.GetProfileAsync`/`GetSpaceGraphAsync` are small additive `Application`
+methods — the profile one is the fetch logic already used by `search_memory`, extracted so it can be
+called on its own instead of only alongside a search; the graph one wraps
+`IMemoryGraphService.GetSpaceGraphAsync` behind the same `RequireAccess` check every other method uses.
+
+## MCP Apps widgets
+
+See [docs/mcp-apps-widgets-usage.md](docs/mcp-apps-widgets-usage.md) for a protocol-level walkthrough
+of each widget with request/response examples.
+
+Phase 3 also adds four interactive widgets via the `ModelContextProtocol.Extensions.Apps` package
+(an `[Experimental]` API, `MCPEXP003` suppressed in `MemoryMcp.Api.csproj`, same as the SDK's own
+`samples/WeatherAppServer`): `[McpAppUi(ResourceUri = "ui://...")]` on a tool
+(`src/MemoryMcp.Api/Apps/AppUiTools.cs`) links it to an HTML resource served with
+`MimeType = McpApps.HtmlMimeType` (`src/MemoryMcp.Api/Apps/AppUiResources.cs`, markup under
+`Apps/ui/*.html`); `.WithMcpApps()` is wired into both the HTTP and stdio server registrations in
+`Program.cs`. Inside the iframe, each widget bootstraps a small `window.postMessage` JSON-RPC bridge
+(`ui/initialize` handshake, then ordinary `tools/call`/`resources/read`) to drive real tools/resources
+— no widget-specific business logic lives in the HTML beyond that bridge.
+
+| Widget | Opens via tool | Backing UI resource | What it does |
+| --- | --- | --- | --- |
+| `select-space` | `select_space_ui` | `ui://select-space` | Lists accessible spaces (`memory-mcp://spaces`) and switches the active one (`setActiveSpace`) |
+| `guided-save` | `guided_save_ui` | `ui://guided-save` | Editable content/category/space form that calls `add_memory` |
+| `upload-file` | `upload_file_ui` | `ui://upload-file` | Local file picker that calls `create_document`, then optionally `add_memory` with the extracted text |
+| `memory-graph` | `memory_graph_ui` | `ui://memory-graph` | Reads `memory-mcp://graph` and renders it with a small hand-rolled force-directed layout (no CDN dependency) |
+
+`upload-file` fully ingests text-like formats (`.txt`/`.md`/`.csv`, read client-side via
+`FileReader.readAsText`) and PDF: for PDF the widget instead reads the file as base64
+(`FileReader.readAsDataURL`) and sends it to `create_document` with `docType: "pdf"`, which decodes it
+server-side and extracts the text via `IPdfTextExtractor` (`PdfPig`, pure managed, no native
+dependencies or external service — see `src/MemoryMcp.Infrastructure/Documents/PdfTextExtractor.cs`)
+before storing it as the document's `RawContent`; the widget then fetches that extracted text back via
+`getDocument` if "also extract memories" is checked, since the plain text only exists server-side for
+PDFs. A malformed/corrupt PDF surfaces as a normal tool error (`DocumentExtractionException`), not an
+unhandled exception.
+
+> **Note:** other formats the wider spec mentions (Word, images, MP3/WAV/M4A, MP4/WebM) can still be
+> picked in the file dialog but disable upload with an inline explanation — Word text extraction and
+> image OCR/audio transcription are deferred to a future phase, the same way the pgvector/Docker
+> constraints above are called out rather than worked around.
+
+Full interactive rendering (the widget actually showing up and working inside an iframe) requires an
+MCP Apps-capable host (e.g. Claude Desktop/VS Code with Apps support) — same caveat the SDK's own
+`WeatherAppServer` sample calls out. Any MCP client can still list/call the four `*_ui` tools and read
+the `ui://*` resources to confirm they're registered and serving HTML.
 
 ## Project phases
 
@@ -195,23 +246,19 @@ See [docs/graph-memory-plan.md](docs/graph-memory-plan.md) for the full design.
 - [x] `Embeddings:Dimensions` made configurable (Gemini's native embedding width differs from OpenAI's)
 - [x] Test suite extended (unit, integration, end-to-end)
 
-### Phase 3 — Resources and prompt — Completed (widgets not implemented)
+### Phase 3 — Resources, prompt, and MCP Apps widgets — Completed
 
-- [x] MCP Resources: `memory-mcp://profile`, `memory-mcp://spaces`, `memory-mcp://memories`
+- [x] MCP Resources: `memory-mcp://profile`, `memory-mcp://spaces`, `memory-mcp://memories`, `memory-mcp://graph`
 - [x] MCP Prompt: `context`
-- [x] Test suite extended (end-to-end, via the MCP client's resource/prompt calls)
-- [ ] Interactive MCP Apps widgets: `select-space`, `guided-save`, `upload-file`, `memory-graph`
-      (require the `ModelContextProtocol.Extensions.Apps` package and iframe-based UI — the `memory-graph`
-      widget would visualize the `memory_edges` table added in Phase 2; left for a future phase, to avoid
-      blocking further extensibility)
+- [x] Interactive MCP Apps widgets: `select-space`, `guided-save`, `upload-file`, `memory-graph`
+      (via the `ModelContextProtocol.Extensions.Apps` package; see "MCP Apps widgets" above —
+      `upload-file` ingests text-like formats and PDF (via `PdfPig`); Word/image/audio parsing deferred)
+- [x] Test suite extended (end-to-end, via the MCP client's resource/prompt/tool calls)
 
 ### Phase 4 — Not implemented (evolution)
 - [ ] Review project for introducing a real graphDB (Neo4j)
 - [ ] Reintroducing `Qdrant` with a native HNSW index as the vector DB
-
-The remaining MCP Apps widgets would be added as new classes in the `Api` project, reusing the
-existing `Application` services, once the `ModelContextProtocol.Extensions.Apps` package and an
-iframe-based UI are in scope.
+- [ ] Word text extraction and image OCR/audio transcription for `upload-file`
 
 ## Setup and startup
 
@@ -413,8 +460,8 @@ application:
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 
 If an `mcpServers` section already exists with other servers, simply add the entry you picked without
-overwriting the others. On restart, Memory-MCP's 7 tools, 3 resources, and `context` prompt will be
-available in the conversation (support for resources/prompts varies by client).
+overwriting the others. On restart, Memory-MCP's tools, resources, `context` prompt, and MCP Apps
+widgets will be available in the conversation (support for resources/prompts/widgets varies by client).
 
 ## Tests
 

@@ -23,4 +23,15 @@ public sealed class DocumentTools(IDocumentService documentService)
         [Description("Document id.")] Guid documentId,
         CancellationToken cancellationToken = default) =>
         McpExecution.RunAsync(() => documentService.GetDocumentAsync(documentId, cancellationToken));
+
+    [McpServerTool(Name = "create_document")]
+    [Description("Stores content as a new document in a space (text/Markdown/CSV/PDF in this version — this does not extract memories, call add_memory separately for that). For docType \"pdf\", content must be the base64-encoded PDF bytes; the text is extracted server-side and stored/returned instead of the binary.")]
+    public Task<DocumentSummaryDto> CreateDocument(
+        [Description("Document title, e.g. the uploaded file name.")] string title,
+        [Description("Document type: \"text\", \"markdown\", \"csv\", or \"pdf\".")] string docType,
+        [Description("Raw text content, or (when docType is \"pdf\") the base64-encoded PDF bytes.")] string content,
+        [Description("Optional short summary.")] string? summary = null,
+        [Description("Space key; defaults to the API key's active space.")] string? containerTag = null,
+        CancellationToken cancellationToken = default) =>
+        McpExecution.RunAsync(() => documentService.CreateDocumentAsync(title, docType, content, summary, containerTag, cancellationToken));
 }

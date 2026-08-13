@@ -5,6 +5,8 @@ using MemoryMcp.Domain;
 using MemoryMcp.Infrastructure;
 using MemoryMcp.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using ModelContextProtocol.Extensions.Apps;
+using ModelContextProtocol.Protocol;
 
 if (args.Contains("--stdio"))
 {
@@ -34,11 +36,17 @@ builder.Services
             Name = "Memory-MCP",
             Version = "1.0.0",
         };
+        options.Capabilities = new ServerCapabilities
+        {
+            Tools = new ToolsCapability(),
+            Resources = new ResourcesCapability(),
+        };
     })
     .WithHttpTransport()
     .WithToolsFromAssembly()
     .WithResourcesFromAssembly()
-    .WithPromptsFromAssembly();
+    .WithPromptsFromAssembly()
+    .WithMcpApps();
 
 var app = builder.Build();
 
@@ -107,11 +115,17 @@ static async Task RunStdioAsync(string[] args)
                 Name = "Memory-MCP",
                 Version = "1.0.0",
             };
+            options.Capabilities = new ServerCapabilities
+            {
+                Tools = new ToolsCapability(),
+                Resources = new ResourcesCapability(),
+            };
         })
         .WithStdioServerTransport()
         .WithToolsFromAssembly()
         .WithResourcesFromAssembly()
-        .WithPromptsFromAssembly();
+        .WithPromptsFromAssembly()
+        .WithMcpApps();
 
     var host = builder.Build();
 

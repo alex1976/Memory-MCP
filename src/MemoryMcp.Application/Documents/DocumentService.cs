@@ -5,8 +5,12 @@ namespace MemoryMcp.Application.Documents;
 
 public sealed class DocumentService(
     IDocumentRepository documentRepository,
-    ICurrentAccessContext accessContext) : IDocumentService
+    ICurrentAccessContext accessContext,
+    IUnitOfWork unitOfWork,
+    IPdfTextExtractor pdfTextExtractor) : IDocumentService
 {
+    private const string PdfDocType = "pdf";
+
     public async Task<PagedResult<DocumentSummaryDto>> ListDocumentsAsync(
         string? containerTag, int page, int limit, CancellationToken cancellationToken = default)
     {
@@ -40,5 +44,44 @@ public sealed class DocumentService(
         return new DocumentDetailDto(
             document.Id, document.Title, document.DocType, document.Status.ToString(),
             document.Summary, document.RawContent, document.CreatedAt, document.UpdatedAt);
+    }
+
+    public async Task<DocumentSummaryDto> CreateDocumentAsync(
+        string title, string docType, string content, string? summary, string? containerTag, CancellationToken cancellationToken = default)
+    {
+        var grant = accessContext.ResolveGrant(containerTag) ?? throw new SpaceNotFoundException(containerTag);
+        if (!accessContext.HasAccess(grant, AccessLevel.ReadWrite))
+        {
+            throw new AccessDeniedException($"The current API key does not have write access to space '{grant.SpaceKey}'.");
+        }
+
+        var rawContent = content;
+        if (string.Equals(docType, PdfDocType, StringComparison.OrdinalIgnoreCase))
+        {
+            rawContent = await ExtractPdfTextAsync(content, cancellationToken);
+        }
+
+        var document = new Document(grant.SpaceId, title, docType, rawContent: rawContent, summary: summary);
+        document.MarkProcessed(summary);
+
+        documentRepository.Add(document);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return new DocumentSummaryDto(document.Id, document.Title, document.DocType, document.Status.ToString(), document.Summary, document.CreatedAt, document.UpdatedAt);
+    }
+
+    private async Task<string> ExtractPdfTextAsync(string base64Content, CancellationToken cancellationToken)
+    {
+        byte[] pdfBytes;
+        try
+        {
+            pdfBytes = Convert.FromBase64String(base64Content);
+        }
+        catch (FormatException)
+        {
+            throw new DocumentExtractionException("PDF content must be base64-encoded.");
+        }
+
+        return await pdfTextExtractor.ExtractTextAsync(pdfBytes, cancellationToken);
     }
 }

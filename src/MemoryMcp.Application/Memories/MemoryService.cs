@@ -221,6 +221,12 @@ public sealed class MemoryService(
         return new AddMemoryResult(null, MemoryAction.Forget, toForget.Count, message);
     }
 
+    public async Task<SpaceGraphDto> GetSpaceGraphAsync(string? containerTag, CancellationToken cancellationToken = default)
+    {
+        var grant = RequireAccess(containerTag, AccessLevel.Read);
+        return await memoryGraphService.GetSpaceGraphAsync(grant.SpaceId, cancellationToken: cancellationToken);
+    }
+
     private SpaceGrant RequireAccess(string? containerTag, AccessLevel required)
     {
         var grant = accessContext.ResolveGrant(containerTag) ?? throw new SpaceNotFoundException(containerTag);

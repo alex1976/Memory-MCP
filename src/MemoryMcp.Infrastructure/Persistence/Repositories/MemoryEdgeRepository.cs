@@ -8,6 +8,9 @@ public sealed class MemoryEdgeRepository(MemoryDbContext dbContext) : IMemoryEdg
 {
     public void Add(MemoryEdge edge) => dbContext.MemoryEdges.Add(edge);
 
+    public async Task<IReadOnlyList<MemoryEdge>> ListEdgesAsync(Guid spaceId, CancellationToken cancellationToken = default) =>
+        await dbContext.MemoryEdges.AsNoTracking().Where(e => e.SpaceId == spaceId).ToListAsync(cancellationToken);
+
     public async Task<IReadOnlyList<RelatedMemory>> GetRelatedAsync(
         Guid rootMemoryId, int maxHops, CancellationToken cancellationToken = default)
     {

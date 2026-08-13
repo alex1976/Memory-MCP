@@ -22,4 +22,8 @@ public interface IMemoryEdgeRepository
     /// memory was newer at the time it was created, not which one a caller will end up searching for.</summary>
     Task<IReadOnlyList<RelatedMemory>> GetRelatedAsync(
         Guid rootMemoryId, int maxHops, CancellationToken cancellationToken = default);
+
+    /// <summary>All edges in a space, unbounded by any root memory — used by the memory-graph widget to
+    /// render a whole-space view rather than a single memory's neighborhood.</summary>
+    Task<IReadOnlyList<MemoryEdge>> ListEdgesAsync(Guid spaceId, CancellationToken cancellationToken = default);
 }

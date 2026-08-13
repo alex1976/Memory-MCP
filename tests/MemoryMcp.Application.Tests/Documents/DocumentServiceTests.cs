@@ -13,10 +13,14 @@ public sealed class DocumentServiceTests
     private static readonly Guid OtherSpaceId = Guid.NewGuid();
     private static readonly SpaceGrant ReadGrant = new(SpaceId, "default", "Default", AccessLevel.Read, IsDefault: true);
 
+    private static readonly SpaceGrant ReadWriteGrant = new(SpaceId, "default", "Default", AccessLevel.ReadWrite, IsDefault: true);
+
     private readonly IDocumentRepository _documentRepository = Substitute.For<IDocumentRepository>();
+    private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
+    private readonly IPdfTextExtractor _pdfTextExtractor = Substitute.For<IPdfTextExtractor>();
 
     private DocumentService CreateService(ICurrentAccessContext accessContext) =>
-        new(_documentRepository, accessContext);
+        new(_documentRepository, accessContext, _unitOfWork, _pdfTextExtractor);
 
     [Fact]
     public async Task ListDocumentsAsync_throws_when_space_cannot_be_resolved()
@@ -80,5 +84,70 @@ public sealed class DocumentServiceTests
 
         result.RawContent.Should().Be("raw content");
         result.Summary.Should().Be("summary");
+    }
+
+    [Fact]
+    public async Task CreateDocumentAsync_persists_and_returns_a_processed_document()
+    {
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        var result = await service.CreateDocumentAsync("Notes", "text", "raw content", "a summary", containerTag: null);
+
+        result.Title.Should().Be("Notes");
+        result.DocType.Should().Be("text");
+        result.Summary.Should().Be("a summary");
+        result.Status.Should().Be(DocumentStatus.Processed.ToString());
+        _documentRepository.Received(1).Add(Arg.Is<Document>(d => d != null && d.Title == "Notes" && d.SpaceId == SpaceId));
+        await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task CreateDocumentAsync_throws_when_key_only_has_read_access()
+    {
+        var service = CreateService(new FakeAccessContext { Grants = [ReadGrant] });
+
+        var act = async () => await service.CreateDocumentAsync("Notes", "text", "raw content", null, containerTag: null);
+
+        await act.Should().ThrowAsync<AccessDeniedException>();
+    }
+
+    [Fact]
+    public async Task CreateDocumentAsync_extracts_pdf_text_instead_of_storing_the_base64_payload()
+    {
+        var pdfBytes = "%PDF-1.4 fake bytes"u8.ToArray();
+        var base64 = Convert.ToBase64String(pdfBytes);
+        _pdfTextExtractor.ExtractTextAsync(Arg.Is<byte[]>(b => b.SequenceEqual(pdfBytes)), Arg.Any<CancellationToken>())
+            .Returns("Extracted PDF text");
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        var result = await service.CreateDocumentAsync("report.pdf", "pdf", base64, null, containerTag: null);
+
+        result.DocType.Should().Be("pdf");
+        _documentRepository.Received(1).Add(Arg.Is<Document>(d => d != null && d.RawContent == "Extracted PDF text"));
+    }
+
+    [Fact]
+    public async Task CreateDocumentAsync_throws_when_pdf_content_is_not_valid_base64()
+    {
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        var act = async () => await service.CreateDocumentAsync("report.pdf", "pdf", "not-base64!!", null, containerTag: null);
+
+        await act.Should().ThrowAsync<DocumentExtractionException>();
+    }
+
+    [Fact]
+    public async Task CreateDocumentAsync_propagates_extraction_failures_as_a_document_extraction_exception()
+    {
+        var base64 = Convert.ToBase64String("not really a pdf"u8.ToArray());
+        _pdfTextExtractor.ExtractTextAsync(Arg.Any<byte[]>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<string>(new DocumentExtractionException("Could not extract text from the PDF: corrupt file.")));
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        var act = async () => await service.CreateDocumentAsync("report.pdf", "pdf", base64, null, containerTag: null);
+
+        await act.Should().ThrowAsync<DocumentExtractionException>();
     }
 }
