@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using AwesomeAssertions;
 using MemoryMcp.Application.Documents;
@@ -85,6 +86,28 @@ public sealed class McpAppsEndToEndTests(McpApiFactory factory)
         {
             resources.Should().ContainSingle(r => r.Uri == uri && r.MimeType == HtmlMimeType);
         }
+
+        await client.DisposeAsync();
+    }
+
+    [Theory]
+    [InlineData("select_space_ui", "ui://select-space")]
+    [InlineData("guided_save_ui", "ui://guided-save")]
+    [InlineData("upload_file_ui", "ui://upload-file")]
+    [InlineData("memory_graph_ui", "ui://memory-graph")]
+    public async Task Widget_opener_tool_declares_its_ui_resource_via_meta(string toolName, string expectedResourceUri)
+    {
+        // This is exactly the field an MCP Apps-capable host reads to decide which resource to render
+        // as an iframe after calling the opener tool — if it's missing/wrong, the host has nothing to
+        // render even though the tool call itself succeeds.
+        var client = await CreateClientAsync();
+
+        var tools = await client.ListToolsAsync();
+        var tool = tools.Should().ContainSingle(t => t.Name == toolName).Subject;
+
+        var uiMeta = tool.ProtocolTool.Meta?["ui"];
+        uiMeta.Should().NotBeNull($"tool '{toolName}' should carry _meta.ui set by [McpAppUi]/.WithMcpApps()");
+        uiMeta!["resourceUri"]!.GetValue<string>().Should().Be(expectedResourceUri);
 
         await client.DisposeAsync();
     }
