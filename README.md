@@ -19,6 +19,7 @@ Full functional specification: [CLAUDE.md](CLAUDE.md).
 - [Setup and startup](#setup-and-startup)
 - [Tests](#tests)
 - [Docker](#docker)
+- [Deploy to Fly.io](#deploy-to-flyio)
 
 ## Architecture
 
@@ -491,3 +492,53 @@ docker compose up --build
 
 Starts a standard Postgres (`postgres:17`, without `pgvector`) and the `api` service, exposed on
 `http://localhost:8080`.
+
+## Deploy to Fly.io
+
+[fly.toml](fly.toml) builds the existing [Dockerfile](Dockerfile) as-is and runs the API on port 8080
+behind Fly's managed HTTPS. Database migrations do **not** run on normal HTTP startup (only `--seed`
+and `--stdio` apply them), so `fly.toml` wires `dotnet MemoryMcp.Api.dll --migrate` as the
+`release_command`, which applies pending migrations and exits before each new version starts serving.
+
+1. Create the app (adjust the name in `fly.toml` first if `memory-mcp` is taken, and `primary_region`
+   if you're not near Frankfurt):
+
+   ```bash
+   fly launch --no-deploy
+   ```
+
+2. Provision Postgres — either Fly's own Managed Postgres, or an external free-tier host (e.g. Neon,
+   Supabase); this app only needs plain Postgres, not pgvector:
+
+   ```bash
+   fly mpg create
+   ```
+
+3. Set secrets (the connection string must be in Npgsql keyword format, not a `postgres://` URL):
+
+   ```bash
+   fly secrets set \
+     ConnectionStrings__Default="Host=<host>;Port=5432;Database=<db>;Username=<user>;Password=<password>" \
+     Embeddings__Provider="OpenAI" Embeddings__ApiKey="<key>" Embeddings__Model="text-embedding-3-small" \
+     Extraction__Provider="OpenAI" Extraction__ApiKey="<key>" Extraction__Model="gpt-4o-mini"
+   ```
+
+4. Deploy:
+
+   ```bash
+   fly deploy
+   ```
+
+5. Bootstrap the first Space + API key (there's no admin API yet — see `SeedDevDataAsync` in
+   [Program.cs](src/MemoryMcp.Api/Program.cs)). Run the seed command once via a Fly console:
+
+   ```bash
+   fly ssh console -C "dotnet MemoryMcp.Api.dll --seed"
+   ```
+
+   Copy the printed `mmcp_...` key from the output — it's the `X-Api-Key` used by MCP clients — and
+   store it somewhere safe (it's only ever shown once).
+
+`min_machines_running = 0` in `fly.toml` lets the machine stop when idle to minimize cost on a personal
+project; the trade-off is a cold start (few seconds) on the first request after idling. Set it to `1`
+if that latency is a problem for your MCP client.

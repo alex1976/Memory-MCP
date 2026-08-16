@@ -14,6 +14,12 @@ if (args.Contains("--stdio"))
     return;
 }
 
+if (args.Contains("--migrate"))
+{
+    await RunMigrateAsync(args);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddMemoryMcpApplication();
@@ -64,6 +70,21 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapMcp("/mcp").RequireAuthorization();
 
 app.Run();
+
+// Applies pending EF Core migrations and exits, without starting the HTTP host or seeding dev data.
+// Meant to run as a platform release step (e.g. Fly.io's release_command) before the new version
+// starts serving traffic, since the normal HTTP path never migrates on its own.
+static async Task RunMigrateAsync(string[] args)
+{
+    var builder = Host.CreateApplicationBuilder(args);
+    builder.Services.AddMemoryMcpInfrastructure(builder.Configuration);
+
+    var host = builder.Build();
+
+    using var scope = host.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<MemoryDbContext>();
+    await db.Database.MigrateAsync();
+}
 
 // Dev-only helper: creates a Space + ReadWrite API key so the MCP tools can be exercised
 // manually (e.g. via MCP Inspector) without a full admin API, which is out of scope for Phase 1.

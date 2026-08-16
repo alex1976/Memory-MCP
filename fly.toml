@@ -1,0 +1,33 @@
+# Fly.io app configuration for Memory-MCP.
+# Requires an app to be created first with `fly launch --no-deploy` (or `fly apps create <name>`),
+# and secrets set before the first deploy — see README.md > Deploy > Fly.io.
+app = "memory-mcp"
+primary_region = "fra"
+
+[build]
+
+[deploy]
+  release_command = "dotnet MemoryMcp.Api.dll --migrate"
+
+[env]
+  ASPNETCORE_URLS = "http://+:8080"
+  ASPNETCORE_ENVIRONMENT = "Production"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    timeout = "5s"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
