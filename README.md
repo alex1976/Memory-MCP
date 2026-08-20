@@ -77,9 +77,20 @@ non-native widths. All memories in a space must share the same width, since ther
 index to bridge dimension mismatches.
 
 Besides semantic search, `search_memory` also supports literal keyword search
-(`keyword`, case-insensitive match via `ILIKE` in `MemoryRepository.SearchByKeywordAsync`, without generating
-an embedding) and filtering/listing by category (`category`, an optional column on `memories`, assignable in
-`add_memory`). The three criteria can be combined: `query`/`keyword` can be further restricted by
+(`keyword`, matched in `MemoryRepository.SearchByKeywordAsync` without generating an embedding). A memory
+matches if its text contains the keyword as a case-insensitive substring (`ILIKE`) **or** is a close
+fuzzy/typo match per Postgres's `pg_trgm` word similarity (`word_similarity(keyword, text) >=
+pg_trgm.word_similarity_threshold`, the extension's default of `0.6`); matches are ranked by that
+similarity score. Both paths are backed by a single GIN trigram index on `memories.text`
+(`gin_trgm_ops`, see `MemoryConfiguration`). The default threshold is intentional rather than an
+oversight: for short keywords (3-5 letters) trigram similarity is noisy — e.g. `word_similarity('plan',
+'plant')` is `0.8` and `word_similarity('sky', 'skip')` is `0.5` — so lowering it below the default to
+catch more typos (e.g. `word_similarity('recieve', 'receive')` is only `0.375`) trades a small amount of
+typo recall for a much larger amount of unrelated-word noise. `pg_trgm` needs no admin-restricted native
+extension (unlike `pgvector`, see below), so it works in this environment.
+
+`search_memory` also supports filtering/listing by category (`category`, an optional column on
+`memories`, assignable in `add_memory`). The three criteria can be combined: `query`/`keyword` can be further restricted by
 `category`; if only `category` is given, `MemoryRepository.ListByCategoryAsync` lists the memories in that
 category ordered by creation date. At least one of `query`, `keyword`, and `category` must be provided.
 

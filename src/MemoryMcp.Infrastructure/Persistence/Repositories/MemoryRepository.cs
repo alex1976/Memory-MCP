@@ -46,16 +46,22 @@ public sealed class MemoryRepository(MemoryDbContext dbContext) : IMemoryReposit
     public async Task<IReadOnlyList<Domain.Memory>> SearchByKeywordAsync(
         Guid spaceId, string keyword, int topK, string? category = null, CancellationToken cancellationToken = default)
     {
+        // Combines an exact substring match with pg_trgm word-similarity so typos/near-misses
+        // (e.g. "sky" vs "skye") are still found; both are backed by the GIN trigram index on
+        // Text (see MemoryConfiguration), and results are ranked by similarity so exact/close
+        // matches surface before looser fuzzy ones.
         var query = dbContext.Memories
             .AsNoTracking()
-            .Where(m => m.SpaceId == spaceId && m.IsActive && EF.Functions.ILike(m.Text, $"%{keyword}%"));
+            .Where(m => m.SpaceId == spaceId && m.IsActive &&
+                (EF.Functions.ILike(m.Text, $"%{keyword}%") || EF.Functions.TrigramsAreWordSimilar(keyword, m.Text)));
         if (!string.IsNullOrWhiteSpace(category))
         {
             query = query.Where(m => m.Category == category);
         }
 
         return await query
-            .OrderByDescending(m => m.CreatedAt)
+            .OrderByDescending(m => EF.Functions.TrigramsWordSimilarity(keyword, m.Text))
+            .ThenByDescending(m => m.CreatedAt)
             .Take(topK)
             .ToListAsync(cancellationToken);
     }

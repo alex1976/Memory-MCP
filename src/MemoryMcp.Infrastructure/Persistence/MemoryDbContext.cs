@@ -14,6 +14,7 @@ public sealed class MemoryDbContext(DbContextOptions<MemoryDbContext> options) :
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresExtension("pg_trgm");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(MemoryDbContext).Assembly);
     }
 }

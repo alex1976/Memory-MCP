@@ -27,6 +27,12 @@ public sealed class MemoryConfiguration : IEntityTypeConfiguration<Domain.Memory
         builder.HasIndex(m => m.SpaceId);
         builder.HasIndex(m => new { m.SpaceId, m.Category });
 
+        // GIN trigram index backs both the existing ILIKE substring search and the fuzzy
+        // (typo-tolerant) trigram similarity search in MemoryRepository.SearchByKeywordAsync.
+        builder.HasIndex(m => m.Text)
+            .HasMethod("gin")
+            .HasOperators("gin_trgm_ops");
+
         builder.HasOne<Space>().WithMany().HasForeignKey(m => m.SpaceId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Document>().WithMany().HasForeignKey(m => m.DocumentId).OnDelete(DeleteBehavior.SetNull);
     }

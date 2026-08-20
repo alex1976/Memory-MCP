@@ -1,6 +1,7 @@
 using AwesomeAssertions;
 using MemoryMcp.Domain;
 using MemoryMcp.Infrastructure.Persistence.Repositories;
+using Microsoft.EntityFrameworkCore;
 using Memory = MemoryMcp.Domain.Memory;
 
 namespace MemoryMcp.Infrastructure.Tests;
@@ -102,6 +103,24 @@ public sealed class MemoryRepositoryTests(PostgresFixture fixture)
         var results = await repository.SearchByKeywordAsync(spaceId, "sky", topK: 10, category: "nature");
 
         results.Should().ContainSingle(m => m.Text == "The Sky Is Blue");
+    }
+
+    [Fact]
+    public async Task SearchByKeywordAsync_finds_a_typoed_keyword_via_trigram_similarity()
+    {
+        using var db = fixture.CreateDbContext();
+        var spaceId = await SeedSpaceAsync(db);
+
+        var match = new Memory(spaceId, "Schedule the planning session for Friday", embedding: null);
+        var unrelated = new Memory(spaceId, "Grocery shopping list", embedding: null);
+
+        db.Memories.AddRange(match, unrelated);
+        await db.SaveChangesAsync();
+
+        var repository = new MemoryRepository(db);
+        var results = await repository.SearchByKeywordAsync(spaceId, "sesion", topK: 10);
+
+        results.Should().ContainSingle(m => m.Text == "Schedule the planning session for Friday");
     }
 
     [Fact]
