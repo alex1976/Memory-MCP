@@ -6,3 +6,6 @@ obj/
 # Per-developer local overrides (may contain real connection strings/secrets)
 appsettings.Development.json
 appsettings.*.local.json
+
+# Local always-on server logs (scripts/start-server.ps1)
+.logs/

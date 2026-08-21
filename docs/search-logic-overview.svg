@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1300" height="1100" viewBox="0 0 1300 1100" font-family="Segoe Print, Comic Sans MS, cursive">
+  <defs>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#e2d6bd"/>
+    </pattern>
+    <symbol id="ic-search" viewBox="0 0 40 40">
+      <circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="3"/>
+      <line x1="24" y1="25" x2="34" y2="35" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-vector" viewBox="0 0 40 40">
+      <line x1="9" y1="31" x2="20" y2="11" stroke="currentColor" stroke-width="2.5"/>
+      <line x1="20" y1="11" x2="32" y2="26" stroke="currentColor" stroke-width="2.5"/>
+      <line x1="9" y1="31" x2="32" y2="26" stroke="currentColor" stroke-width="2.5" stroke-dasharray="2 4"/>
+      <circle cx="9" cy="31" r="4.2" fill="currentColor"/>
+      <circle cx="20" cy="11" r="4.2" fill="currentColor"/>
+      <circle cx="32" cy="26" r="4.2" fill="currentColor"/>
+    </symbol>
+    <symbol id="ic-typo" viewBox="0 0 40 40">
+      <text x="3" y="24" font-size="17" font-weight="700" fill="currentColor">sk?</text>
+      <path d="M3,30 Q10,26 17,30 T31,30" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-tag" viewBox="0 0 40 40">
+      <path d="M7 10 H23 L33 20 L23 30 H7 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+      <circle cx="14" cy="20" r="2.6" fill="currentColor"/>
+    </symbol>
+    <symbol id="ic-x" viewBox="0 0 40 40">
+      <circle cx="20" cy="20" r="15" fill="none" stroke="currentColor" stroke-width="3"/>
+      <line x1="13" y1="13" x2="27" y2="27" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/>
+      <line x1="27" y1="13" x2="13" y2="27" stroke="currentColor" stroke-width="3.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-funnel" viewBox="0 0 40 40">
+      <path d="M6 8 H34 L22 22 V32 L18 34 V22 Z" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="ic-graph" viewBox="0 0 40 40">
+      <circle cx="10" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <circle cx="30" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <circle cx="20" cy="30" r="4" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <line x1="13" y1="14" x2="27" y2="14" stroke="currentColor" stroke-width="2"/>
+      <line x1="12" y1="15" x2="19" y2="27" stroke="currentColor" stroke-width="2"/>
+      <line x1="28" y1="15" x2="21" y2="27" stroke="currentColor" stroke-width="2"/>
+    </symbol>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M1,1 L9,5 L1,9" fill="none" stroke="#2e2a24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- paper -->
+  <rect x="0" y="0" width="1300" height="1100" fill="#f6efe1"/>
+  <rect x="0" y="0" width="1300" height="1100" fill="url(#dots)" opacity="0.55"/>
+  <rect x="14" y="14" width="1272" height="1072" rx="18" fill="none" stroke="#2e2a24" stroke-width="3"/>
+
+  <!-- Title -->
+  <g transform="rotate(-0.6 300 50)">
+    <use href="#ic-search" x="40" y="24" width="42" height="42" color="#3b78c2"/>
+    <text x="94" y="54" font-size="30" font-weight="700" fill="#2e2a24">search_memory — logica di ricerca / search logic</text>
+  </g>
+  <text x="94" y="82" font-size="14.5" fill="#5b5548">query, keyword, category — almeno uno richiesto / at least one required</text>
+
+  <!-- Start box -->
+  <g transform="rotate(-0.4 260 130)">
+    <rect x="60" y="106" width="400" height="50" rx="14" fill="#fffaf0" stroke="#2e2a24" stroke-width="2.4"/>
+    <text x="260" y="137" text-anchor="middle" font-size="16" font-weight="700" fill="#2e2a24">search_memory(query?, keyword?, category?)</text>
+  </g>
+  <path d="M260,156 L260,196" fill="none" stroke="#2e2a24" stroke-width="2.6" marker-end="url(#arrow)"/>
+
+  <!-- Swimlane headers -->
+  <text x="260" y="192" text-anchor="middle" font-size="12" font-weight="700" fill="#8a8272" letter-spacing="1">DECISIONE / DECISION</text>
+  <text x="520" y="192" font-size="12" font-weight="700" fill="#8a8272" letter-spacing="1">PERCORSO SCELTO / CHOSEN PATH</text>
+  <line x1="490" y1="200" x2="490" y2="880" stroke="#2e2a24" stroke-width="1.3" stroke-dasharray="3 6" opacity="0.35"/>
+
+  <!-- Decision 1: query -->
+  <g transform="rotate(-0.3 260 237)">
+    <rect x="90" y="200" width="340" height="74" rx="37" fill="#fffaf0" stroke="#3b78c2" stroke-width="2.8"/>
+    <text x="260" y="231" text-anchor="middle" font-size="17" font-weight="700" fill="#2e2a24">query presente?</text>
+    <text x="260" y="253" text-anchor="middle" font-size="12.5" fill="#5b5548">is query given?</text>
+  </g>
+
+  <!-- yes -&gt; panel 1 -->
+  <path d="M430,237 L520,237" fill="none" stroke="#3b78c2" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <text x="445" y="228" font-size="13.5" font-weight="700" fill="#3b78c2">sì / yes</text>
+
+  <g transform="rotate(-0.4 885 237)">
+    <rect x="520" y="142" width="730" height="190" rx="18" fill="#fffaf0" stroke="#3b78c2" stroke-width="2.6"/>
+    <use href="#ic-vector" x="542" y="158" width="40" height="40" color="#3b78c2"/>
+    <text x="594" y="184" font-size="18" font-weight="700" fill="#2e2a24">① RICERCA SEMANTICA / SEMANTIC</text>
+    <text x="546" y="210" font-size="13.8" fill="#5b5548">embedding (OpenAI / Azure OpenAI / Gemini) → cosine similarity in-app</text>
+    <text x="546" y="230" font-size="13.8" fill="#5b5548">nessun indice vettoriale nativo — no pgvector/HNSW disponibile</text>
+    <text x="546" y="258" font-size="13.8" font-weight="700" fill="#2e2a24">category → filtro AND sui candidati / AND filter on candidates</text>
+    <text x="546" y="284" font-size="13" fill="#8a8272">ranking: score reale = similarità coseno (0–1)</text>
+    <text x="546" y="304" font-size="13" fill="#c0392b" font-weight="700">⚠ se query è presente, keyword viene IGNORATO / keyword is ignored</text>
+  </g>
+
+  <!-- no -&gt; decision 2 -->
+  <path d="M260,274 L260,413" fill="none" stroke="#e8604c" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <rect x="238" y="330" width="46" height="24" rx="6" fill="#f6efe1"/>
+  <text x="261" y="347" text-anchor="middle" font-size="13.5" font-weight="700" fill="#e8604c">no</text>
+
+  <!-- Decision 2: keyword -->
+  <g transform="rotate(0.3 260 460)">
+    <rect x="90" y="423" width="340" height="74" rx="37" fill="#fffaf0" stroke="#e8604c" stroke-width="2.8"/>
+    <text x="260" y="454" text-anchor="middle" font-size="17" font-weight="700" fill="#2e2a24">keyword presente?</text>
+    <text x="260" y="476" text-anchor="middle" font-size="12.5" fill="#5b5548">is keyword given?</text>
+  </g>
+
+  <!-- yes -&gt; panel 2 -->
+  <path d="M430,460 L520,460" fill="none" stroke="#e8604c" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <text x="445" y="451" font-size="13.5" font-weight="700" fill="#e8604c">sì / yes</text>
+
+  <g transform="rotate(0.3 885 460)">
+    <rect x="520" y="355" width="730" height="210" rx="18" fill="#fffaf0" stroke="#e8604c" stroke-width="2.6"/>
+    <use href="#ic-search" x="542" y="372" width="34" height="34" color="#e8604c"/>
+    <use href="#ic-typo" x="580" y="372" width="34" height="34" color="#e8604c"/>
+    <text x="624" y="396" font-size="18" font-weight="700" fill="#2e2a24">② KEYWORD + FUZZY</text>
+    <text x="546" y="424" font-size="13.8" fill="#5b5548">SQL: ILIKE '%keyword%' OR pg_trgm word_similarity ≥ 0.6 (soglia default)</text>
+    <text x="546" y="444" font-size="13.8" fill="#5b5548">stesso indice GIN trigram (gin_trgm_ops) per entrambe le condizioni</text>
+    <text x="546" y="464" font-size="13.8" fill="#8a8272">tollera typo lievi ("sesion"≈"session"), non quelli forti (recieve/receive=0.375)</text>
+    <text x="546" y="490" font-size="13.8" font-weight="700" fill="#2e2a24">category → filtro AND, come nel percorso semantico</text>
+    <text x="546" y="514" font-size="13" fill="#8a8272">ranking: word_similarity decrescente poi data</text>
+    <text x="546" y="534" font-size="13" fill="#8a8272">Score nel risultato = 1.0 fisso (non il valore reale di similarità)</text>
+  </g>
+
+  <!-- no -&gt; decision 3 -->
+  <path d="M260,497 L260,613" fill="none" stroke="#3f9d63" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <rect x="238" y="543" width="46" height="24" rx="6" fill="#f6efe1"/>
+  <text x="261" y="560" text-anchor="middle" font-size="13.5" font-weight="700" fill="#3f9d63">no</text>
+
+  <!-- Decision 3: category -->
+  <g transform="rotate(-0.3 260 660)">
+    <rect x="90" y="623" width="340" height="74" rx="37" fill="#fffaf0" stroke="#3f9d63" stroke-width="2.8"/>
+    <text x="260" y="654" text-anchor="middle" font-size="17" font-weight="700" fill="#2e2a24">category presente?</text>
+    <text x="260" y="676" text-anchor="middle" font-size="12.5" fill="#5b5548">is category given?</text>
+  </g>
+
+  <!-- yes -&gt; panel 3 -->
+  <path d="M430,660 L520,660" fill="none" stroke="#3f9d63" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <text x="445" y="651" font-size="13.5" font-weight="700" fill="#3f9d63">sì / yes</text>
+
+  <g transform="rotate(-0.3 885 660)">
+    <rect x="520" y="585" width="730" height="150" rx="18" fill="#fffaf0" stroke="#3f9d63" stroke-width="2.6"/>
+    <use href="#ic-tag" x="542" y="600" width="38" height="38" color="#3f9d63"/>
+    <text x="592" y="624" font-size="18" font-weight="700" fill="#2e2a24">③ ELENCO PER CATEGORIA / LISTING</text>
+    <text x="546" y="652" font-size="13.8" fill="#5b5548">uguaglianza esatta su Category — nessun embedding, nessuno scoring</text>
+    <text x="546" y="672" font-size="13.8" fill="#5b5548">exact match on Category — no embedding, no relevance scoring</text>
+    <text x="546" y="700" font-size="13" fill="#8a8272">ranking: solo CreatedAt decrescente / just CreatedAt descending</text>
+  </g>
+
+  <!-- no -&gt; error -->
+  <path d="M260,697 L260,747" fill="none" stroke="#c0392b" stroke-width="2.6" marker-end="url(#arrow)"/>
+  <rect x="238" y="705" width="46" height="24" rx="6" fill="#f6efe1"/>
+  <text x="261" y="722" text-anchor="middle" font-size="13.5" font-weight="700" fill="#c0392b">no</text>
+
+  <g transform="rotate(-0.5 260 800)">
+    <rect x="90" y="747" width="340" height="106" rx="16" fill="#fdecea" stroke="#c0392b" stroke-width="2.6"/>
+    <use href="#ic-x" x="108" y="762" width="36" height="36" color="#c0392b"/>
+    <text x="156" y="782" font-size="15.5" font-weight="700" fill="#2e2a24">Errore / Error</text>
+    <text x="112" y="810" font-size="12" fill="#5b5548">"Provide at least one of</text>
+    <text x="112" y="826" font-size="12" fill="#5b5548">query, keyword, or category."</text>
+  </g>
+
+  <!-- common footer notes (apply regardless of the branch taken) -->
+  <text x="94" y="908" font-size="12" font-weight="700" fill="#8a8272" letter-spacing="1">SEMPRE, SU TUTTI I PERCORSI / ALWAYS, ON EVERY PATH</text>
+
+  <g transform="rotate(-0.3 650 950)">
+    <rect x="90" y="918" width="1120" height="60" rx="14" fill="#fffaf0" stroke="#2e2a24" stroke-width="2.2"/>
+    <use href="#ic-funnel" x="108" y="932" width="30" height="30" color="#2e2a24"/>
+    <text x="152" y="946" font-size="14" font-weight="700" fill="#2e2a24">Filtro su SpaceId + IsActive · max SearchTopK = 10 risultati</text>
+    <text x="152" y="966" font-size="12.5" fill="#5b5548">le memorie "forgotten" o superate (Updates) non vengono mai restituite</text>
+  </g>
+
+  <g transform="rotate(0.3 650 1018)">
+    <rect x="90" y="986" width="1120" height="60" rx="14" fill="#fffaf0" stroke="#8b5fbf" stroke-width="2.2"/>
+    <use href="#ic-graph" x="108" y="1000" width="30" height="30" color="#8b5fbf"/>
+    <text x="152" y="1014" font-size="14" font-weight="700" fill="#2e2a24">+ RelatedMemories (graph memory) sui primi 3 match, indipendentemente dal percorso</text>
+    <text x="152" y="1034" font-size="12.5" fill="#5b5548">attached to the top 3 matches regardless of which branch above produced them</text>
+  </g>
+
+</svg>
