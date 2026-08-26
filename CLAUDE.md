@@ -34,6 +34,11 @@ Your assistant chooses these tools automatically. Use this table when you need t
 
 `listDocuments` and `listMemories` default to 10 results per page and accept up to 50.
 
+Semantic recall is ranked inside PostgreSQL by `pgvector`, over a `halfvec(3072)` column with an HNSW
+cosine index — `halfvec` rather than `vector` because pgvector's indexes cap the latter at 2000
+dimensions. All memories in a space therefore share one schema-bound embedding width, enforced at
+startup. See [docs/pgvector-halfvec-search.md](docs/pgvector-halfvec-search.md).
+
 ### Save or forget
 
 `add_memory` saves the supplied `content` by default. Set `action` to `forget` when a fact is outdated or should be removed. There is no separate forget tool. An optional `category` tags a saved memory so it can be filtered later via `search_memory`. If the content is already final, the assistant should use `add_memory`. If you want to review, edit, or choose a space before saving, it should open the `guided-save` widget instead.

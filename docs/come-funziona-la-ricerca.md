@@ -37,22 +37,21 @@ configurabile per singola chiamata).
 
 1. `query` viene trasformato in un vettore da `IEmbeddingProvider.EmbedAsync` — provider
    collegabile (OpenAI, Azure OpenAI o Gemini, tutti tramite lo stesso `EmbeddingClient` dell'SDK
-   OpenAI, puntato a un base URL diverso per Gemini). La dimensione è configurabile
-   (`Embeddings:Dimensions`, default `1536`, corrispondente a `text-embedding-3-small`).
-2. L'embedding è salvato come colonna nativa Postgres `real[]` (mappata da Npgsql) sulla riga
-   `memories`, non in un indice vettoriale dedicato.
-3. `SearchAsync` filtra per `SpaceId`, `IsActive`, `Embedding != null` e, se passato, `Category`,
-   poi **carica tutti i candidati in memoria** e calcola la cosine similarity in-app
-   ([MemoryRepository.cs:80-91](../src/MemoryMcp.Infrastructure/Persistence/Repositories/MemoryRepository.cs#L80-L91)),
-   ordinando per punteggio decrescente e prendendo i primi `topK`.
+   OpenAI, puntato a un base URL diverso per Gemini). La larghezza è vincolata allo schema
+   (`VectorSettings.Dimensions` = `3072`): `Embeddings:Dimensions` deve coincidere, o l'avvio fallisce.
+2. L'embedding è salvato in una colonna `pgvector` di tipo `halfvec(3072)` sulla riga `memories`,
+   con indice **HNSW** sulla distanza coseno.
+3. `SearchAsync` esegue la KNN **dentro Postgres**: ordina per `Embedding <=> :query` filtrando su
+   `SpaceId`, `IsActive`, `Embedding IS NOT NULL` e, se passato, `Category`, con `LIMIT topK`. La query
+   proietta solo id e distanza — gli embedding non transitano mai sulla rete — e solo le righe vincenti
+   vengono poi caricate come entità tracciate.
 
-> Non c'è `pgvector`/HNSW: nell'ambiente di sviluppo Docker Desktop è bloccato da policy aziendale e
-> il Postgres locale non ha i permessi per installare estensioni. Il calcolo in-app funziona
-> correttamente ma non scala come un indice vettoriale nativo su volumi molto grandi (vedi la nota
-> nel [README](../README.md#semantic-search)).
+> `halfvec` e non `vector`: gli indici HNSW di pgvector si fermano a 2000 dimensioni sul tipo `vector`,
+> mentre gli embedding qui sono a 3072. Dettagli, teoria e note operative in
+> [pgvector-halfvec-search.md](pgvector-halfvec-search.md).
 
 Il punteggio (`Score`) restituito in `MemorySearchResultDto` per questo percorso è la cosine
-similarity effettiva (0–1).
+similarity (0–1), ricavata dalla distanza restituita da Postgres come `1 - distanza`.
 
 ## 2. Ricerca per keyword, con fuzzy matching (`keyword`)
 
@@ -115,7 +114,7 @@ combinato che l'elenco puro per categoria.
 
 | Criterio | Genera embedding? | Motore di match | Ranking | `category` |
 | --- | --- | --- | --- | --- |
-| `query` | Sì (`IEmbeddingProvider`) | cosine similarity in-app su `real[]` | per similarità (score reale) | filtro `AND` sui candidati |
+| `query` | Sì (`IEmbeddingProvider`) | cosine distance in Postgres (`<=>`, indice HNSW su `halfvec`) | per similarità (score reale) | filtro `AND` nella query |
 | `keyword` (`query` assente) | No | `ILIKE` substring **OR** `pg_trgm` word similarity, via indice GIN trigram | per `word_similarity` decrescente poi `CreatedAt` | filtro `AND` sui candidati |
 | `category` (unico criterio) | No | uguaglianza esatta su `Category` | nessuno, solo `CreatedAt` decrescente | è il criterio stesso |
 
@@ -172,22 +171,21 @@ returned). The maximum number of results is fixed: `SearchTopK = 10` (a private 
 
 1. `query` is turned into a vector by `IEmbeddingProvider.EmbedAsync` — a pluggable provider
    (OpenAI, Azure OpenAI, or Gemini, all through the same OpenAI SDK `EmbeddingClient`, pointed at
-   a different base URL for Gemini). The dimensionality is configurable
-   (`Embeddings:Dimensions`, defaulting to `1536`, matching `text-embedding-3-small`).
-2. The embedding is stored as a native Postgres `real[]` column (mapped via Npgsql) on the
-   `memories` row, not in a dedicated vector index.
-3. `SearchAsync` filters by `SpaceId`, `IsActive`, `Embedding != null`, and, if given, `Category`,
-   then **loads all candidates into memory** and computes cosine similarity in-app
-   ([MemoryRepository.cs:80-91](../src/MemoryMcp.Infrastructure/Persistence/Repositories/MemoryRepository.cs#L80-L91)),
-   sorting by descending score and taking the top `topK`.
+   a different base URL for Gemini). The width is schema-bound (`VectorSettings.Dimensions` = `3072`):
+   `Embeddings:Dimensions` must match it, or startup fails.
+2. The embedding is stored in a `pgvector` `halfvec(3072)` column on the `memories` row, with an
+   **HNSW** index on cosine distance.
+3. `SearchAsync` runs the KNN **inside Postgres**: it orders by `Embedding <=> :query` while filtering
+   on `SpaceId`, `IsActive`, `Embedding IS NOT NULL` and, if given, `Category`, with `LIMIT topK`. The
+   query projects only ids and distances — embeddings never cross the wire — and only the winning rows
+   are then loaded as tracked entities.
 
-> There's no `pgvector`/HNSW: in the development environment Docker Desktop is blocked by company
-> policy and the local Postgres has no permissions to install extensions. The in-app computation
-> works correctly but doesn't scale like a native vector index would on very large volumes (see
-> the note in the [README](../README.md#semantic-search)).
+> `halfvec` rather than `vector`: pgvector's HNSW indexes cap the `vector` type at 2000 dimensions,
+> and these embeddings are 3072-wide. Theory, implementation and operational notes in
+> [pgvector-halfvec-search.md](pgvector-halfvec-search.md).
 
-The `Score` returned in `MemorySearchResultDto` for this path is the actual cosine similarity
-(0–1).
+The `Score` returned in `MemorySearchResultDto` for this path is cosine similarity (0–1), derived from
+the distance Postgres returns as `1 - distance`.
 
 ## 2. Keyword search with fuzzy matching (`keyword`)
 
@@ -247,7 +245,7 @@ and the plain category listing efficient.
 
 | Criterion | Generates an embedding? | Matching engine | Ranking | `category` |
 | --- | --- | --- | --- | --- |
-| `query` | Yes (`IEmbeddingProvider`) | in-app cosine similarity on `real[]` | by similarity (real score) | `AND` filter on candidates |
+| `query` | Yes (`IEmbeddingProvider`) | cosine distance in Postgres (`<=>`, HNSW index on `halfvec`) | by similarity (real score) | `AND` filter in the query |
 | `keyword` (`query` absent) | No | `ILIKE` substring **OR** `pg_trgm` word similarity, via GIN trigram index | by `word_similarity` descending, then `CreatedAt` | `AND` filter on candidates |
 | `category` (sole criterion) | No | exact equality on `Category` | none, just `CreatedAt` descending | is the criterion itself |
 

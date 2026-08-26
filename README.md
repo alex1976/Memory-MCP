@@ -68,13 +68,24 @@ calls the application service, and formats the output — no business logic in t
 
 `IEmbeddingProvider` is pluggable (OpenAI, Azure OpenAI, or Gemini — the same OpenAI SDK
 `EmbeddingClient` under all three, pointed at a different base URL for Gemini, since its API is
-OpenAI-compatible). Embeddings are stored as a native Postgres `real[]` column (via Npgsql), and cosine
-similarity is computed **in-app** in `MemoryRepository.SearchAsync`. The requested embedding width
-(`Embeddings:Dimensions`, forwarded as the OpenAI "dimensions" parameter) is configurable — it defaults
-to `1536` (OpenAI's `text-embedding-3-small`); when using Gemini's `gemini-embedding-001` prefer its
-native `3072` rather than truncating, since that model needs the result manually re-normalized for
-non-native widths. All memories in a space must share the same width, since there's no `pgvector`
-index to bridge dimension mismatches.
+OpenAI-compatible). Embeddings are stored in a **`pgvector`** column and ranked **in the database** by
+cosine distance (`<=>`), served by an HNSW index — see
+[docs/pgvector-halfvec-search.md](docs/pgvector-halfvec-search.md) for the full design.
+
+The column type is `halfvec(3072)`, not `vector(3072)`, and that choice is load-bearing: pgvector's HNSW
+and IVFFlat indexes cap the `vector` type at **2000 dimensions**, so a `vector(3072)` column would accept
+the data and then fail at index creation. `halfvec` indexes up to 4000 dimensions and halves storage
+(2 bytes per component instead of 4); the half-precision rounding is immaterial for cosine *ranking*.
+
+`MemoryRepository.SearchAsync` runs the KNN as parameterized SQL that projects only ids and distances —
+embeddings never cross the wire — then loads just the top-k rows as tracked entities, so `ForgetAsync`
+can still soft-delete through change tracking without the read path tracking the whole space.
+
+The embedding width is **schema-bound**, not a configuration knob: EF migrations are generated at design
+time, so `VectorSettings.Dimensions` (3072) is the single source of truth, and startup fails if
+`Embeddings:Dimensions` disagrees with it. Changing the width means a migration plus a re-embed of every
+stored memory. This is what makes mixed-width embeddings — which previously produced silently
+meaningless similarity scores — unrepresentable.
 
 Besides semantic search, `search_memory` also supports literal keyword search
 (`keyword`, matched in `MemoryRepository.SearchByKeywordAsync` without generating an embedding). A memory
@@ -94,12 +105,14 @@ extension (unlike `pgvector`, see below), so it works in this environment.
 `category`; if only `category` is given, `MemoryRepository.ListByCategoryAsync` lists the memories in that
 category ordered by creation date. At least one of `query`, `keyword`, and `category` must be provided.
 
-> Note: the original specification called for PostgreSQL + the `pgvector` extension with an HNSW index. In this
-> environment Docker Desktop is blocked by company policy and the available local Postgres does not have
-> `pgvector` installed (nor can it be installed without local admin permissions), so the
-> search was implemented without the extension. It works correctly but doesn't scale as well as a native
-> vector index on very large volumes — if `pgvector` becomes available in the future, migrating to
-> an HNSW index requires revisiting `MemoryConfiguration` and `MemoryRepository.SearchAsync`.
+> **Requires `pgvector` ≥ 0.7.0** (the version that introduced `halfvec`), on a **stable** PostgreSQL
+> release. Earlier phases ran without the extension and scored cosine similarity in-app; that path has
+> been removed. Two environment notes worth knowing before setting this up elsewhere:
+>
+> - A PostgreSQL *release candidate* will reject the extension (`The specified procedure could not be
+>   found`) — pgvector binaries are built against the released ABI, so a pre-GA server fails to load them.
+> - `CREATE EXTENSION vector` needs **superuser**, because pgvector is not a *trusted* extension. The
+>   migration runs it, so verify the permission on managed Postgres before the first deploy.
 
 ### Graph memory
 
@@ -135,6 +148,7 @@ configuration alone.
 | MCP Server | `ModelContextProtocol` / `ModelContextProtocol.AspNetCore` 2.1.0 + `ModelContextProtocol.Extensions.Apps` (MCP Apps widgets) |
 | Web host | ASP.NET Core Minimal API |
 | Persistence | PostgreSQL + EF Core 10 (`Npgsql.EntityFrameworkCore.PostgreSQL`) |
+| Vector search | `pgvector` ≥ 0.7.0 (`halfvec` + HNSW), via `Pgvector.EntityFrameworkCore` |
 | Embedding | `OpenAI` / `Azure.AI.OpenAI` (same `EmbeddingClient`, selected via configuration; also backs Gemini's OpenAI-compatible endpoint) |
 | Fact extraction | Same `OpenAI` SDK's `ChatClient`, JSON Schema structured output (OpenAI / Azure OpenAI / Gemini / self-hosted OpenAI-compatible) |
 | PDF text extraction | `PdfPig` (pure managed, no native dependencies or external service) |
@@ -150,7 +164,7 @@ configuration alone.
 | `api_keys` | API key (only the hash is stored, never the plaintext value) |
 | `api_key_space_grants` | `Read`/`ReadWrite` permission of an API Key on a space + "active space" flag |
 | `documents` | Source document (title, type, status, summary, raw content) |
-| `memories` | Extracted memory (text, optional category, `real[]` embedding, version, `is_active` for soft-delete/"forget") |
+| `memories` | Extracted memory (text, optional category, `halfvec(3072)` embedding with an HNSW cosine index, version, `is_active` for soft-delete/"forget") |
 | `memory_edges` | Typed, directed graph edge between two memories (`Updates`/`Extends`/`Derives`), scoped to a space |
 
 ## Available MCP tools
@@ -267,9 +281,24 @@ See [docs/graph-memory-plan.md](docs/graph-memory-plan.md) for the full design.
       `upload-file` ingests text-like formats and PDF (via `PdfPig`); Word/image/audio parsing deferred)
 - [x] Test suite extended (end-to-end, via the MCP client's resource/prompt/tool calls)
 
-### Phase 4 — Not implemented (evolution)
+### Phase 4 — Native vector index — Completed
+
+See [docs/pgvector-halfvec-search.md](docs/pgvector-halfvec-search.md) for the full design and rationale.
+
+- [x] `pgvector` adopted with a **native HNSW index**, replacing in-app cosine scoring — the original
+      specification's intent, reached with pgvector rather than the separate `Qdrant` service originally
+      sketched, since it keeps memories and their vectors in one transactional store
+- [x] `halfvec(3072)` column, working around pgvector's 2000-dimension index limit on the `vector` type
+- [x] KNN pushed into SQL: embeddings no longer cross the wire, and change tracking is confined to `topK`
+      rows instead of the whole space
+- [x] Embedding width made schema-bound and validated at startup, making mixed-width embeddings
+      (previously a silent source of meaningless similarity scores) unrepresentable
+- [x] Npgsql provider configuration centralized so `UseVector()` can't be omitted by a second call site
+
+### Phase 5 — Not implemented (evolution)
 - [ ] Review project for introducing a real graphDB (Neo4j)
-- [ ] Reintroducing `Qdrant` with a native HNSW index as the vector DB
+- [ ] Full-precision re-ranking of HNSW candidates, if measured recall proves insufficient
+- [ ] pgvector iterative index scans (0.8.0+) for highly selective filtered searches
 - [ ] Word text extraction and image OCR/audio transcription for `upload-file`
 
 ## Setup and startup
@@ -277,7 +306,10 @@ See [docs/graph-memory-plan.md](docs/graph-memory-plan.md) for the full design.
 ### Prerequisites
 
 - [.NET SDK 10](https://dotnet.microsoft.com/download) (version pinned in [global.json](global.json))
-- A reachable PostgreSQL instance (local or remote). **The `pgvector` extension is not required.**
+- A reachable PostgreSQL instance (local or remote) on a **stable** release, with the **`pgvector`
+  extension ≥ 0.7.0** available and a database user allowed to `CREATE EXTENSION` (superuser — pgvector
+  is not a trusted extension). The migration installs the extension itself; see
+  [docs/pgvector-halfvec-search.md](docs/pgvector-halfvec-search.md#5-operational-notes)
 - (Optional) an OpenAI, Azure OpenAI, or Gemini API Key, needed only for the `add_memory` and `search_memory` tools
 - (Optional) a second API Key (OpenAI / Azure OpenAI / Gemini / self-hosted) for fact extraction —
   without it, `add_memory` still works but saves whole content as a single memory with no graph edges
@@ -341,11 +373,18 @@ For Azure OpenAI: `"Provider": "AzureOpenAI"`, `"Endpoint": "https://<resource>.
 }
 ```
 
-`Dimensions` defaults to `1536` (OpenAI's `text-embedding-3-small`) and is forwarded as the OpenAI
-"dimensions" request parameter; set it to `3072` for `gemini-embedding-001` (its native width — Gemini
-needs the result manually re-normalized for truncated widths, so avoid requesting a smaller one).
-Without any of this configured, the server still starts and all other tools work normally: only
-`add_memory`/`search_memory` will return a tool error.
+`Dimensions` is forwarded as the OpenAI "dimensions" request parameter and **must equal
+`VectorSettings.Dimensions` (3072)**, the width baked into the `halfvec` column — the server refuses to
+start otherwise, with a message naming both values. Changing it is a schema migration plus a re-embed of
+every stored memory, not a configuration edit; `3072` is `gemini-embedding-001`'s native width, and that
+model needs manual re-normalization for truncated widths anyway.
+
+Provider and endpoint are validated at startup too: an unrecognized `Provider` is rejected rather than
+silently falling through to `api.openai.com`, and `AzureOpenAI` without an `Endpoint` fails immediately
+instead of at the first tool call.
+
+Leaving the embedding provider **entirely unconfigured** is still supported: the server starts and all
+other tools work normally — only `add_memory`/`search_memory` return a tool error.
 
 ### 4. (Optional) Configure fact extraction (graph memory)
 
@@ -488,8 +527,10 @@ dotnet test
 
 > The integration/E2E tests connect directly to the Postgres indicated by
 > `MEMORYMCP_TEST_CONNECTION_STRING` (no Testcontainers/Docker, for consistency with the company
-> environment). They apply migrations automatically and every test uses keys/spaces with random GUIDs, so it's
-> safe to point them at the development database too.
+> environment). That instance needs `pgvector` too, since the tests apply migrations automatically.
+> Every test uses keys/spaces with random GUIDs, so pointing them at the development database doesn't
+> collide — though rows do accumulate there, and `McpApiFactory`'s connection-string override doesn't
+> currently take effect (see [TODO.md](TODO.md)).
 
 ## Docker
 
@@ -501,8 +542,9 @@ company policy):
 docker compose up --build
 ```
 
-Starts a standard Postgres (`postgres:17`, without `pgvector`) and the `api` service, exposed on
-`http://localhost:8080`.
+Starts Postgres with pgvector preinstalled (`pgvector/pgvector:pg17`) and the `api` service, exposed on
+`http://localhost:8080`. The plain `postgres:17` image will **not** work: the migration runs
+`CREATE EXTENSION vector` and fails without it.
 
 ## Deploy to Fly.io
 
@@ -519,10 +561,17 @@ and `--stdio` apply them), so `fly.toml` wires `dotnet MemoryMcp.Api.dll --migra
    ```
 
 2. Provision Postgres — either Fly's own Managed Postgres, or an external free-tier host (e.g. Neon,
-   Supabase); this app only needs plain Postgres, not pgvector:
+   Supabase). It **must** offer `pgvector` ≥ 0.7.0 and let your user run `CREATE EXTENSION vector`:
 
    ```bash
    fly mpg create
+   ```
+
+   Confirm before deploying, since the `release_command` in step 4 applies the migration that installs
+   the extension — if it can't, the deploy fails:
+
+   ```bash
+   psql "<connection-string>" -c "CREATE EXTENSION IF NOT EXISTS vector; SELECT extversion FROM pg_extension WHERE extname='vector';"
    ```
 
 3. Set secrets (the connection string must be in Npgsql keyword format, not a `postgres://` URL):

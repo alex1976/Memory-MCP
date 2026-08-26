@@ -1,6 +1,8 @@
 services:
   db:
-    image: postgres:17
+    # pgvector, not plain postgres:17 — the migration runs CREATE EXTENSION vector and the
+    # memories.Embedding column is halfvec(3072). See docs/pgvector-halfvec-search.md.
+    image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
       POSTGRES_DB: memory_mcp

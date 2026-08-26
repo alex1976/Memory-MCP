@@ -1,5 +1,6 @@
 using MemoryMcp.Infrastructure.Embeddings;
 using MemoryMcp.Infrastructure.Extraction;
+using MemoryMcp.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 
 namespace MemoryMcp.Infrastructure;
@@ -55,11 +56,15 @@ internal sealed class EmbeddingOptionsValidator : IValidateOptions<EmbeddingOpti
         var failures = ProviderOptionsValidation.Validate(
             EmbeddingOptions.SectionName, options.Provider, options.Endpoint, options.Model);
 
-        // Embeddings are stored as a fixed-width real[] and compared in-app, so a non-positive width
-        // would produce vectors that can't be scored at all (see VectorSettings).
-        if (options.Dimensions <= 0)
+        // The halfvec column has a fixed width baked into the schema, so a provider configured to emit a
+        // different one would either fail on insert or (as happened before this check existed) leave the
+        // space with mixed-width embeddings whose similarity scores are silently meaningless.
+        if (options.Dimensions != VectorSettings.Dimensions)
         {
-            failures.Add($"{EmbeddingOptions.SectionName}:Dimensions must be greater than zero.");
+            failures.Add(
+                $"{EmbeddingOptions.SectionName}:Dimensions is {options.Dimensions} but the schema stores " +
+                $"halfvec({VectorSettings.Dimensions}). Changing the width requires a migration and a re-embed " +
+                "of every stored memory — see VectorSettings.");
         }
 
         return ProviderOptionsValidation.ToResult(failures);

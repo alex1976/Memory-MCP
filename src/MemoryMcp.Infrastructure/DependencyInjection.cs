@@ -24,7 +24,7 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("Default")
             ?? throw new InvalidOperationException("Missing 'ConnectionStrings:Default' configuration value.");
 
-        services.AddDbContext<MemoryDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddDbContext<MemoryDbContext>(options => options.UseMemoryMcpNpgsql(connectionString));
 
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IApiKeyRepository, ApiKeyRepository>();

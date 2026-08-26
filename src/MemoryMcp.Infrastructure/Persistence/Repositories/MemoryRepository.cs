@@ -1,5 +1,6 @@
 using MemoryMcp.Application.Abstractions;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 
 namespace MemoryMcp.Infrastructure.Persistence.Repositories;
 
@@ -25,23 +26,49 @@ public sealed class MemoryRepository(MemoryDbContext dbContext) : IMemoryReposit
     public async Task<IReadOnlyList<MemorySearchHit>> SearchAsync(
         Guid spaceId, float[] queryEmbedding, int topK, string? category = null, CancellationToken cancellationToken = default)
     {
-        // No pgvector extension available in this environment, so candidates are pulled into memory
-        // and scored here. Tracked on purpose: MemoryService.ForgetAsync mutates the returned entities
-        // and relies on EF change tracking to persist the soft-delete without a redundant round trip.
-        var query = dbContext.Memories.Where(m => m.SpaceId == spaceId && m.IsActive && m.Embedding != null);
-        if (!string.IsNullOrWhiteSpace(category))
+        // Ranking happens in Postgres via pgvector's `<=>` cosine-distance operator, served by the HNSW
+        // index on Embedding. This previously pulled every embedding in the space into memory and scored
+        // in C#, which at 3072 dimensions meant ~6 KB per row materialized on every search *and* every
+        // add_memory (extraction candidates go through the same path).
+        //
+        // Two steps on purpose: the KNN projects only ids and distances — never the embeddings — and the
+        // winning rows are then loaded as tracked entities. That keeps ForgetAsync able to soft-delete
+        // through change tracking while confining tracking to topK rows rather than the whole space.
+        var queryVector = new HalfVector(Array.ConvertAll(queryEmbedding, f => (Half)f));
+        // Normalized so a blank category behaves as "no filter", matching the previous
+        // string.IsNullOrWhiteSpace guard rather than filtering on an empty string.
+        var categoryFilter = string.IsNullOrWhiteSpace(category) ? null : category;
+
+        var ranked = await dbContext.Database.SqlQuery<RankedRow>(
+            $"""
+            SELECT "Id" AS "Id", ("Embedding" <=> {queryVector}::halfvec) AS "Distance"
+            FROM memories
+            WHERE "SpaceId" = {spaceId}
+              AND "IsActive"
+              AND "Embedding" IS NOT NULL
+              AND ({categoryFilter}::text IS NULL OR "Category" = {categoryFilter})
+            ORDER BY "Embedding" <=> {queryVector}::halfvec
+            LIMIT {topK}
+            """).ToListAsync(cancellationToken);
+
+        if (ranked.Count == 0)
         {
-            query = query.Where(m => m.Category == category);
+            return [];
         }
 
-        var candidates = await query.ToListAsync(cancellationToken);
+        var ids = ranked.Select(r => r.Id).ToList();
+        var byId = await dbContext.Memories
+            .Where(m => ids.Contains(m.Id))
+            .ToDictionaryAsync(m => m.Id, cancellationToken);
 
-        return candidates
-            .Select(m => new MemorySearchHit(m, CosineSimilarity(m.Embedding!, queryEmbedding)))
-            .OrderByDescending(hit => hit.Score)
-            .Take(topK)
+        // Cosine distance is 1 - cosine similarity; callers (and ForgetSimilarityThreshold) speak similarity.
+        return ranked
+            .Where(r => byId.ContainsKey(r.Id))
+            .Select(r => new MemorySearchHit(byId[r.Id], 1.0 - r.Distance))
             .ToList();
     }
+
+    private sealed record RankedRow(Guid Id, double Distance);
 
     public async Task<IReadOnlyList<Domain.Memory>> SearchByKeywordAsync(
         Guid spaceId, string keyword, int topK, string? category = null, CancellationToken cancellationToken = default)
@@ -75,19 +102,6 @@ public sealed class MemoryRepository(MemoryDbContext dbContext) : IMemoryReposit
             .OrderByDescending(m => m.CreatedAt)
             .Take(take)
             .ToListAsync(cancellationToken);
-    }
-
-    private static double CosineSimilarity(float[] a, float[] b)
-    {
-        double dot = 0, normA = 0, normB = 0;
-        for (var i = 0; i < a.Length; i++)
-        {
-            dot += (double)a[i] * b[i];
-            normA += (double)a[i] * a[i];
-            normB += (double)b[i] * b[i];
-        }
-
-        return normA == 0 || normB == 0 ? 0 : dot / (Math.Sqrt(normA) * Math.Sqrt(normB));
     }
 
     public async Task<IReadOnlyList<Domain.Memory>> ListRecentActiveAsync(

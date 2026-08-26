@@ -353,7 +353,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
           <div class="name">MemoryMcp.Infrastructure</div>
           <div class="desc">EF Core · repositories · embedding provider (OpenAI / Azure OpenAI / Gemini)</div>
         </div>
-        <span class="tag">Npgsql · EF Core 10</span>
+        <span class="tag">Npgsql · EF Core 10 · pgvector</span>
       </div>
       <div class="arch-arrow">↓ depends on</div>
       <div class="arch-layer">
@@ -382,7 +382,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="card">
         <div class="icon">◇</div>
         <h3>Semantic, keyword, or category search</h3>
-        <p>Cosine similarity between embeddings computed in-app (native Postgres <code>real[]</code> column), paired with literal keyword matching and category filtering/listing — all combinable.</p>
+        <p>Cosine similarity ranked in the database by <code>pgvector</code> (<code>halfvec(3072)</code> column, HNSW index), paired with literal keyword matching and category filtering/listing — all combinable.</p>
       </div>
       <div class="card">
         <div class="icon">○</div>
@@ -523,6 +523,7 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
         <tr><td>MCP Server</td><td><code>ModelContextProtocol</code> / <code>ModelContextProtocol.AspNetCore</code> 2.1.0 + <code>ModelContextProtocol.Extensions.Apps</code></td></tr>
         <tr><td>Web host</td><td>ASP.NET Core Minimal API</td></tr>
         <tr><td>Persistence</td><td>PostgreSQL + EF Core 10 (<code>Npgsql.EntityFrameworkCore.PostgreSQL</code>)</td></tr>
+        <tr><td>Vector search</td><td><code>pgvector</code> ≥ 0.7.0 (<code>halfvec</code> + HNSW), via <code>Pgvector.EntityFrameworkCore</code></td></tr>
         <tr><td>Embedding</td><td><code>OpenAI</code> / <code>Azure.AI.OpenAI</code> / <code>Gemini</code>, same <code>EmbeddingClient</code></td></tr>
         <tr><td>PDF text extraction</td><td><code>PdfPig</code> (pure managed, no native/external dependency)</td></tr>
         <tr><td>Authentication</td><td>Custom scheme based on API Key (SHA-256 hash)</td></tr>
@@ -573,12 +574,22 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
           <li><span class="mark">✓</span><span class="text">Test suite extended end-to-end via the MCP client's resource/prompt/tool calls</span></li>
         </ul>
       </div>
+      <div class="phase-card done">
+        <span class="phase-badge done">Phase 4 — Completed</span>
+        <h3>Native vector index</h3>
+        <ul class="checklist done">
+          <li><span class="mark">✓</span><span class="text"><code>pgvector</code> with a native <strong>HNSW</strong> index, replacing in-app cosine scoring — kept in Postgres rather than a separate <code>Qdrant</code> service, so memories and vectors share one transactional store</span></li>
+          <li><span class="mark">✓</span><span class="text"><code>halfvec(3072)</code> column, working around pgvector's 2000-dimension index limit on the <code>vector</code> type</span></li>
+          <li><span class="mark">✓</span><span class="text">KNN pushed into SQL: embeddings never cross the wire, change tracking confined to <code>topK</code> rows instead of the whole space</span></li>
+          <li><span class="mark">✓</span><span class="text">Embedding width made schema-bound and validated at startup, making mixed-width embeddings unrepresentable</span></li>
+        </ul>
+      </div>
       <div class="phase-card next">
-        <span class="phase-badge next">Phase 4 — Not implemented</span>
+        <span class="phase-badge next">Phase 5 — Not implemented</span>
         <h3>Evolution</h3>
         <ul class="checklist next">
           <li><span class="mark">○</span><span class="text">Review project for introducing a real graph DB (Neo4j)</span></li>
-          <li><span class="mark">○</span><span class="text">Reintroducing <code>Qdrant</code> with a native HNSW index as the vector DB</span></li>
+          <li><span class="mark">○</span><span class="text">Full-precision re-ranking of HNSW candidates, if measured recall proves insufficient</span></li>
           <li><span class="mark">○</span><span class="text">Word text extraction and image OCR/audio transcription for <code>upload-file</code></span></li>
         </ul>
       </div>

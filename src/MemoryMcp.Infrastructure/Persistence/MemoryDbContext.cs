@@ -15,6 +15,10 @@ public sealed class MemoryDbContext(DbContextOptions<MemoryDbContext> options) :
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasPostgresExtension("pg_trgm");
+        // Required by the halfvec column and HNSW index on memories (see MemoryConfiguration). Creating
+        // it needs superuser on the target database, since pgvector isn't a trusted extension — worth
+        // checking on managed Postgres before a first deploy.
+        modelBuilder.HasPostgresExtension("vector");
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(MemoryDbContext).Assembly);
     }
 }

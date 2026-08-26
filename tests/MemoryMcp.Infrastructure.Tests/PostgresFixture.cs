@@ -25,7 +25,7 @@ public sealed class PostgresFixture : IAsyncLifetime
     public MemoryDbContext CreateDbContext()
     {
         var options = new DbContextOptionsBuilder<MemoryDbContext>()
-            .UseNpgsql(ConnectionString)
+            .UseMemoryMcpNpgsql(ConnectionString)
             .Options;
 
         return new MemoryDbContext(options);
