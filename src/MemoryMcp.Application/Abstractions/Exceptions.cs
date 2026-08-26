@@ -24,6 +24,17 @@ public sealed class EntityNotFoundException : Exception
     }
 }
 
+/// <summary>Thrown when caller-supplied arguments are unusable (missing, contradictory, out of range).
+/// Unlike a bare <see cref="ArgumentException"/>, this is mapped by <c>McpExecution</c>, so the message
+/// reaches the client as an actionable tool error instead of an opaque internal failure — which matters
+/// because services are entered from prompts and resources too, not just the tool layer.</summary>
+public sealed class ValidationException : Exception
+{
+    public ValidationException(string message) : base(message)
+    {
+    }
+}
+
 /// <summary>Thrown by <see cref="IFactExtractor"/> implementations when no provider is configured, so
 /// <see cref="MemoryMcp.Application.Memories.MemoryService"/> can fall back to saving whole content as a single memory.</summary>
 public sealed class ExtractorNotConfiguredException : Exception

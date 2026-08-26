@@ -37,7 +37,12 @@ public static class DependencyInjection
         // unconditionally — unlike the embedding/extraction clients below.
         services.AddScoped<IPdfTextExtractor, PdfTextExtractor>();
 
-        services.Configure<EmbeddingOptions>(configuration.GetSection(EmbeddingOptions.SectionName));
+        // Validated at startup rather than on first use: a bad Provider/Endpoint should fail the deploy,
+        // not surface as a failed tool call hours later (or, worse, silently hit the wrong provider).
+        services.AddSingleton<IValidateOptions<EmbeddingOptions>, EmbeddingOptionsValidator>();
+        services.AddOptions<EmbeddingOptions>()
+            .Bind(configuration.GetSection(EmbeddingOptions.SectionName))
+            .ValidateOnStart();
 
         // Lazy: constructing the client validates provider config (e.g. requires a non-empty API key).
         // Deferring that until an embedding is actually requested keeps tools that don't need
@@ -45,7 +50,10 @@ public static class DependencyInjection
         services.AddSingleton(sp => new Lazy<EmbeddingClient>(() => CreateEmbeddingClient(sp), LazyThreadSafetyMode.PublicationOnly));
         services.AddScoped<IEmbeddingProvider, OpenAiCompatibleEmbeddingProvider>();
 
-        services.Configure<ExtractionOptions>(configuration.GetSection(ExtractionOptions.SectionName));
+        services.AddSingleton<IValidateOptions<ExtractionOptions>, ExtractionOptionsValidator>();
+        services.AddOptions<ExtractionOptions>()
+            .Bind(configuration.GetSection(ExtractionOptions.SectionName))
+            .ValidateOnStart();
 
         // Same lazy pattern: LlmFactExtractor itself checks ApiKey before touching the client, so this
         // is only ever forced when extraction is actually configured and invoked. PublicationOnly (rather

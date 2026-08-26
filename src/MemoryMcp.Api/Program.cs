@@ -1,9 +1,12 @@
+using MemoryMcp.Api;
 using MemoryMcp.Api.Auth;
+using MemoryMcp.Api.Health;
 using MemoryMcp.Application;
 using MemoryMcp.Application.Abstractions;
 using MemoryMcp.Domain;
 using MemoryMcp.Infrastructure;
 using MemoryMcp.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.EntityFrameworkCore;
 using ModelContextProtocol.Extensions.Apps;
 using ModelContextProtocol.Protocol;
@@ -34,25 +37,9 @@ builder.Services
         ApiKeyAuthenticationSchemeOptions.SchemeName, _ => { });
 builder.Services.AddAuthorization();
 
-builder.Services
-    .AddMcpServer(options =>
-    {
-        options.ServerInfo = new()
-        {
-            Name = "Memory-MCP",
-            Version = "1.0.0",
-        };
-        options.Capabilities = new ServerCapabilities
-        {
-            Tools = new ToolsCapability(),
-            Resources = new ResourcesCapability(),
-        };
-    })
-    .WithHttpTransport()
-    .WithToolsFromAssembly()
-    .WithResourcesFromAssembly()
-    .WithPromptsFromAssembly()
-    .WithMcpApps();
+builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
+
+AddMemoryMcpServer(builder.Services, mcp => mcp.WithHttpTransport());
 
 var app = builder.Build();
 
@@ -65,11 +52,46 @@ if (args.Contains("--seed"))
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
+// Deliberately anonymous: platform probes (fly.toml, docker-compose) have no API key. Keeps the
+// original { "status": ... } body so existing probes and README docs stay accurate.
+app.MapHealthChecks("/health", new HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        await context.Response.WriteAsJsonAsync(new { status = report.Status.ToString().ToLowerInvariant() });
+    },
+});
 
 app.MapMcp("/mcp").RequireAuthorization();
 
 app.Run();
+
+// Single definition of the server's identity, capabilities, and handler discovery, shared by the HTTP
+// and stdio hosts so the two transports can't drift apart (they previously repeated all of this). Only
+// the transport differs, supplied by the caller.
+static void AddMemoryMcpServer(IServiceCollection services, Func<IMcpServerBuilder, IMcpServerBuilder> withTransport)
+{
+    var mcp = services.AddMcpServer(options =>
+    {
+        options.ServerInfo = new()
+        {
+            Name = "Memory-MCP",
+            Version = typeof(McpExecution).Assembly.GetName().Version?.ToString(3) ?? "1.0.0",
+        };
+        options.Capabilities = new ServerCapabilities
+        {
+            Tools = new ToolsCapability(),
+            Resources = new ResourcesCapability(),
+        };
+    });
+
+    withTransport(mcp)
+        .WithToolsFromAssembly()
+        .WithResourcesFromAssembly()
+        .WithPromptsFromAssembly()
+        .WithMcpApps();
+}
 
 // Applies pending EF Core migrations and exits, without starting the HTTP host or seeding dev data.
 // Meant to run as a platform release step (e.g. Fly.io's release_command) before the new version
@@ -128,25 +150,7 @@ static async Task RunStdioAsync(string[] args)
     builder.Services.AddSingleton<CurrentAccessContext>();
     builder.Services.AddSingleton<ICurrentAccessContext>(sp => sp.GetRequiredService<CurrentAccessContext>());
 
-    builder.Services
-        .AddMcpServer(options =>
-        {
-            options.ServerInfo = new()
-            {
-                Name = "Memory-MCP",
-                Version = "1.0.0",
-            };
-            options.Capabilities = new ServerCapabilities
-            {
-                Tools = new ToolsCapability(),
-                Resources = new ResourcesCapability(),
-            };
-        })
-        .WithStdioServerTransport()
-        .WithToolsFromAssembly()
-        .WithResourcesFromAssembly()
-        .WithPromptsFromAssembly()
-        .WithMcpApps();
+    AddMemoryMcpServer(builder.Services, mcp => mcp.WithStdioServerTransport());
 
     var host = builder.Build();
 

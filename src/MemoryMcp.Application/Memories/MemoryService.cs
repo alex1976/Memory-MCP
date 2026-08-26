@@ -50,7 +50,7 @@ public sealed class MemoryService(
         }
         else
         {
-            throw new ArgumentException("Provide at least one of query, keyword, or category.");
+            throw new ValidationException("Provide at least one of query, keyword, or category.");
         }
 
         for (var i = 0; i < matches.Count && i < RelatedMemoriesTopMatches; i++)
@@ -80,13 +80,20 @@ public sealed class MemoryService(
     public async Task<AddMemoryResult> AddMemoryAsync(
         string content, MemoryAction action, string? category, string? containerTag, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            // Without this, a save would persist an empty memory (and embed an empty string), and a
+            // forget would match arbitrary memories by whatever the empty-text embedding happens to be.
+            throw new ValidationException("Content must not be empty.");
+        }
+
         var grant = RequireAccess(containerTag, AccessLevel.ReadWrite);
 
         return action switch
         {
             MemoryAction.Save => await SaveAsync(grant.SpaceId, content, category, cancellationToken),
             MemoryAction.Forget => await ForgetAsync(grant.SpaceId, content, cancellationToken),
-            _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unsupported memory action."),
+            _ => throw new ValidationException($"Unsupported memory action '{action}'. Use 'save' or 'forget'."),
         };
     }
 
@@ -194,8 +201,17 @@ public sealed class MemoryService(
             ? await embeddingProvider.EmbedBatchAsync(toEmbed, cancellationToken)
             : [];
 
-        var queue = new Queue<float[]>(embedded);
-        return facts.Select(f => f.Text == content ? contentEmbedding : queue.Dequeue()).ToList();
+        if (embedded.Count != toEmbed.Count)
+        {
+            // Positional zip: a short/over-long batch would pair every subsequent fact with another
+            // fact's vector and silently poison similarity search. Previously this surfaced as an
+            // opaque "queue empty" InvalidOperationException, so name the actual problem instead.
+            throw new InvalidOperationException(
+                $"Embedding provider returned {embedded.Count} vectors for {toEmbed.Count} texts.");
+        }
+
+        var nextEmbedding = 0;
+        return facts.Select(f => f.Text == content ? contentEmbedding : embedded[nextEmbedding++]).ToList();
     }
 
     private async Task<AddMemoryResult> ForgetAsync(Guid spaceId, string content, CancellationToken cancellationToken)
@@ -227,17 +243,8 @@ public sealed class MemoryService(
         return await memoryGraphService.GetSpaceGraphAsync(grant.SpaceId, cancellationToken: cancellationToken);
     }
 
-    private SpaceGrant RequireAccess(string? containerTag, AccessLevel required)
-    {
-        var grant = accessContext.ResolveGrant(containerTag) ?? throw new SpaceNotFoundException(containerTag);
-        if (!accessContext.HasAccess(grant, required))
-        {
-            throw new AccessDeniedException(
-                $"The current API key does not have {required} access to space '{grant.SpaceKey}'.");
-        }
-
-        return grant;
-    }
+    private SpaceGrant RequireAccess(string? containerTag, AccessLevel required) =>
+        accessContext.RequireSpace(containerTag, required);
 
     private static MemorySummaryDto ToSummary(Memory memory) =>
         new(memory.Id, memory.Text, memory.Version, memory.DocumentId, memory.IsActive, memory.CreatedAt, memory.Category);

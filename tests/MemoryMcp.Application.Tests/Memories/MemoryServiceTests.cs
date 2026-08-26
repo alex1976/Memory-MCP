@@ -127,7 +127,17 @@ public sealed class MemoryServiceTests
 
         var act = async () => await service.SearchMemoryAsync(query: null, keyword: null, category: null, includeProfile: false, containerTag: null);
 
-        await act.Should().ThrowAsync<ArgumentException>();
+        await act.Should().ThrowAsync<ValidationException>();
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_rejects_empty_content()
+    {
+        var service = CreateService(new FakeAccessContext { Grants = [ReadWriteGrant] });
+
+        var act = async () => await service.AddMemoryAsync("   ", MemoryAction.Save, category: null, containerTag: null);
+
+        await act.Should().ThrowAsync<ValidationException>();
     }
 
     [Fact]

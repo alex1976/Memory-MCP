@@ -14,11 +14,7 @@ public sealed class DocumentService(
     public async Task<PagedResult<DocumentSummaryDto>> ListDocumentsAsync(
         string? containerTag, int page, int limit, CancellationToken cancellationToken = default)
     {
-        var grant = accessContext.ResolveGrant(containerTag) ?? throw new SpaceNotFoundException(containerTag);
-        if (!accessContext.HasAccess(grant, AccessLevel.Read))
-        {
-            throw new AccessDeniedException($"The current API key does not have read access to space '{grant.SpaceKey}'.");
-        }
+        var grant = accessContext.RequireSpace(containerTag, AccessLevel.Read);
 
         var (clampedPage, clampedLimit) = Paging.Clamp(page, limit);
         var (items, totalCount) = await documentRepository.ListAsync(grant.SpaceId, clampedPage, clampedLimit, cancellationToken);
@@ -35,11 +31,7 @@ public sealed class DocumentService(
         var document = await documentRepository.GetByIdAsync(documentId, cancellationToken)
             ?? throw new EntityNotFoundException($"Document '{documentId}' was not found.");
 
-        var grant = accessContext.Grants.FirstOrDefault(g => g.SpaceId == document.SpaceId);
-        if (!accessContext.HasAccess(grant, AccessLevel.Read))
-        {
-            throw new AccessDeniedException($"The current API key does not have read access to document '{documentId}'.");
-        }
+        accessContext.RequireSpaceAccess(document.SpaceId, AccessLevel.Read, $"document '{documentId}'");
 
         return new DocumentDetailDto(
             document.Id, document.Title, document.DocType, document.Status.ToString(),
@@ -49,11 +41,7 @@ public sealed class DocumentService(
     public async Task<DocumentSummaryDto> CreateDocumentAsync(
         string title, string docType, string content, string? summary, string? containerTag, CancellationToken cancellationToken = default)
     {
-        var grant = accessContext.ResolveGrant(containerTag) ?? throw new SpaceNotFoundException(containerTag);
-        if (!accessContext.HasAccess(grant, AccessLevel.ReadWrite))
-        {
-            throw new AccessDeniedException($"The current API key does not have write access to space '{grant.SpaceKey}'.");
-        }
+        var grant = accessContext.RequireSpace(containerTag, AccessLevel.ReadWrite);
 
         var rawContent = content;
         if (string.Equals(docType, PdfDocType, StringComparison.OrdinalIgnoreCase))

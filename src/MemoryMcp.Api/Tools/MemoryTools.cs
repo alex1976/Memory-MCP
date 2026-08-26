@@ -17,15 +17,10 @@ public sealed class MemoryTools(IMemoryService memoryService)
         [Description("Restrict results to memories saved under this category.")] string? category = null,
         [Description("Include stable/recent profile context alongside matches. Defaults to true.")] bool includeProfile = true,
         [Description("Space key; defaults to the API key's active space.")] string? containerTag = null,
-        CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(query) && string.IsNullOrWhiteSpace(keyword) && string.IsNullOrWhiteSpace(category))
-        {
-            throw new McpException("Provide at least one of query, keyword, or category.");
-        }
-
-        return McpExecution.RunAsync(() => memoryService.SearchMemoryAsync(query, keyword, category, includeProfile, containerTag, cancellationToken));
-    }
+        CancellationToken cancellationToken = default) =>
+        // The "at least one of" rule lives in MemoryService, so resources and prompts that call the
+        // service directly get the same validation rather than only tool callers.
+        McpExecution.RunAsync(() => memoryService.SearchMemoryAsync(query, keyword, category, includeProfile, containerTag, cancellationToken));
 
     [McpServerTool(Name = "add_memory")]
     [Description("Saves new information as a memory ('save', default), or forgets a previously saved memory matching the given content ('forget').")]

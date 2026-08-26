@@ -31,6 +31,18 @@ public sealed class McpToolsEndToEndTests(McpApiFactory factory)
     }
 
     [Fact]
+    public async Task Health_endpoint_is_anonymous_and_reports_database_reachability()
+    {
+        using var httpClient = factory.CreateClient();
+
+        var response = await httpClient.GetAsync("/health");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("healthy");
+    }
+
+    [Fact]
     public async Task All_seven_tools_are_registered_and_exercisable_end_to_end()
     {
         using var httpClient = factory.CreateClient();
