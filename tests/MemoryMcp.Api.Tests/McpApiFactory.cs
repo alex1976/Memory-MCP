@@ -5,7 +5,7 @@ using MemoryMcp.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -46,16 +46,20 @@ public sealed class McpApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureAppConfiguration((_, config) =>
-        {
-            config.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:Default"] = ConnectionString,
-            });
-        });
-
         builder.ConfigureServices(services =>
         {
+            // The connection string is overridden here, at the DI level, rather than through
+            // ConfigureAppConfiguration: an in-memory configuration source added there is applied
+            // *before* the app's own appsettings.{Environment}.json, so the dev connection string won
+            // and every e2e run wrote into the developer's working database instead of the one named by
+            // MEMORYMCP_TEST_CONNECTION_STRING. Replacing the already-built registration is independent
+            // of configuration source ordering.
+            services.RemoveAll<IDbContextOptionsConfiguration<MemoryDbContext>>();
+            services.RemoveAll<DbContextOptions<MemoryDbContext>>();
+            services.RemoveAll<DbContextOptions>();
+            services.RemoveAll<MemoryDbContext>();
+            services.AddDbContext<MemoryDbContext>(options => options.UseMemoryMcpNpgsql(ConnectionString));
+
             services.RemoveAll<IEmbeddingProvider>();
             services.AddScoped<IEmbeddingProvider, FakeEmbeddingProvider>();
 

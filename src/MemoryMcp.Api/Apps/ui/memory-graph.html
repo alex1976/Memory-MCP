@@ -133,7 +133,7 @@
         const a = byId.get(e.fromMemoryId), b = byId.get(e.toMemoryId);
         if (!a || !b) continue;
         ctx.strokeStyle = RELATION_COLORS[e.relationType] || '#888';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = e === hoveredEdge ? 3 : 1.5;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
@@ -154,10 +154,35 @@
     }
 
     let hoveredNode = null;
+    let hoveredEdge = null;
     let dragNode = null;
 
     function nodeAt(x, y) {
       return nodes.find(n => Math.hypot(n.x - x, n.y - y) <= 9);
+    }
+
+    // Edges carry the extractor's rationale for the relation (MemoryEdge.Note), which is only
+    // reachable by hovering the line itself — hence point-to-segment distance rather than the
+    // radius check nodeAt does.
+    function edgeAt(x, y) {
+      const byId = new Map(nodes.map(n => [n.id, n]));
+      return edges.find(e => {
+        const a = byId.get(e.fromMemoryId), b = byId.get(e.toMemoryId);
+        if (!a || !b) return false;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const lengthSq = dx * dx + dy * dy;
+        // Clamped projection of the cursor onto the segment, so the hit region stops at the endpoints
+        // instead of extending along the infinite line.
+        const t = lengthSq === 0 ? 0 : Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / lengthSq));
+        return Math.hypot(x - (a.x + t * dx), y - (a.y + t * dy)) <= 5;
+      });
+    }
+
+    function showTooltip(x, y, text) {
+      tooltip.style.display = 'block';
+      tooltip.style.left = (x + 12) + 'px';
+      tooltip.style.top = (y + 12) + 'px';
+      tooltip.textContent = text;
     }
 
     canvas.addEventListener('mousedown', (ev) => {
@@ -176,16 +201,17 @@
         return;
       }
       const hit = nodeAt(x, y);
-      if (hit !== hoveredNode) {
+      const edgeHit = hit ? null : edgeAt(x, y);
+      if (hit !== hoveredNode || edgeHit !== hoveredEdge) {
         hoveredNode = hit;
+        hoveredEdge = edgeHit;
         draw();
       }
       if (hit) {
-        tooltip.style.display = 'block';
-        tooltip.style.left = (x + 12) + 'px';
-        tooltip.style.top = (y + 12) + 'px';
         const status = hit.isActive ? '' : ' (forgotten)';
-        tooltip.textContent = `${hit.text}${status}${hit.category ? ' · ' + hit.category : ''}`;
+        showTooltip(x, y, `${hit.text}${status}${hit.category ? ' · ' + hit.category : ''}`);
+      } else if (edgeHit) {
+        showTooltip(x, y, edgeHit.note ? `${edgeHit.relationType} · ${edgeHit.note}` : `${edgeHit.relationType} (no recorded rationale)`);
       } else {
         tooltip.style.display = 'none';
       }

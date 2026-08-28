@@ -125,7 +125,8 @@ Indipendentemente dal percorso usato, per i primi `RelatedMemoriesTopMatches` (3
 (`Updates`/`Extends`/`Derives`) recuperate con una traversal a profondità massima 2
 (`RelatedMemoriesMaxHops`). Questo è ortogonale ai tre criteri di ricerca sopra: si applica sempre,
 a valle dello scoring/filtro scelto. Approfondimento in
-[graph-memory-plan.md](graph-memory-plan.md).
+[come-funziona-la-memoria-a-grafo.md](come-funziona-la-memoria-a-grafo.md) (disegno originale in
+[graph-memory-plan.md](graph-memory-plan.md)).
 
 ---
 
@@ -256,4 +257,5 @@ Regardless of the path used, for the first `RelatedMemoriesTopMatches` (3) resul
 (`Updates`/`Extends`/`Derives`) fetched with a traversal bounded at depth 2
 (`RelatedMemoriesMaxHops`). This is orthogonal to the three search criteria above: it's always
 applied, downstream of whichever scoring/filter path was chosen. See
-[graph-memory-plan.md](graph-memory-plan.md) for more detail.
+[come-funziona-la-memoria-a-grafo.md](come-funziona-la-memoria-a-grafo.md) for more detail (original
+design in [graph-memory-plan.md](graph-memory-plan.md)).

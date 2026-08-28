@@ -125,13 +125,15 @@ Saved content isn't stored verbatim as a single memory: `MemoryService.SaveAsync
 generalizes them. `LlmFactExtractor` asks its chat model for this via JSON Schema structured output
 (strict mode) rather than parsing free text, and relations pointing at memory ids outside the supplied
 candidates are dropped defensively (a hallucinated id would otherwise violate the edge's foreign key).
+Every relation also carries a short rationale, stored on `MemoryEdge.Note` (clamped to the column width
+by the entity) — the only record of *why* an `Updates` deactivated an existing memory.
 
 There's no dedicated graph database in this environment either (same constraint as above) — traversal
 (`MemoryEdgeRepository.GetRelatedAsync`) is a `WITH RECURSIVE` CTE over the plain `memory_edges`
 table, parameterized through EF Core's `Database.SqlQuery<T>`, bounded by a hop count and a
 visited-node path array to guarantee termination on cycles. `search_memory` attaches each top match's
-related memories (text + relation type + hop count) via `MemoryGraphService`, additive to the existing
-`MemorySearchResultDto` shape.
+related memories (text + relation type + hop count, plus the edge's rationale for direct relations) via
+`MemoryGraphService`, additive to the existing `MemorySearchResultDto` shape.
 
 If `Extraction:ApiKey` is left unconfigured, `IFactExtractor` throws `ExtractorNotConfiguredException`
 and `add_memory` transparently falls back to saving the whole content as a single memory with zero
@@ -165,7 +167,7 @@ configuration alone.
 | `api_key_space_grants` | `Read`/`ReadWrite` permission of an API Key on a space + "active space" flag |
 | `documents` | Source document (title, type, status, summary, raw content) |
 | `memories` | Extracted memory (text, optional category, `halfvec(3072)` embedding with an HNSW cosine index, version, `is_active` for soft-delete/"forget") |
-| `memory_edges` | Typed, directed graph edge between two memories (`Updates`/`Extends`/`Derives`), scoped to a space |
+| `memory_edges` | Typed, directed graph edge between two memories (`Updates`/`Extends`/`Derives`), scoped to a space, with the extractor's rationale in `note` |
 
 ## Available MCP tools
 
@@ -528,9 +530,10 @@ dotnet test
 > The integration/E2E tests connect directly to the Postgres indicated by
 > `MEMORYMCP_TEST_CONNECTION_STRING` (no Testcontainers/Docker, for consistency with the company
 > environment). That instance needs `pgvector` too, since the tests apply migrations automatically.
-> Every test uses keys/spaces with random GUIDs, so pointing them at the development database doesn't
-> collide — though rows do accumulate there, and `McpApiFactory`'s connection-string override doesn't
-> currently take effect (see [TODO.md](TODO.md)).
+> Both `PostgresFixture` and `McpApiFactory` honor the variable — the latter overrides the connection
+> string at the DI level, because a configuration-level override loses to
+> `appsettings.Development.json` — so point it at a **dedicated test database**, not your working one:
+> every test uses random-GUID keys/spaces, so nothing collides, but rows accumulate.
 
 ## Docker
 

@@ -11,7 +11,11 @@ public enum RelatedMemoryDirection
     Incoming,
 }
 
-public sealed record RelatedMemory(Guid MemoryId, RelationType RelationType, int Hops, RelatedMemoryDirection Direction);
+/// <summary><paramref name="Note"/> carries <see cref="MemoryEdge.Note"/> — the rationale for the relation —
+/// but only for direct (<paramref name="Hops"/> == 1) relations: a note describes one edge, whereas a
+/// multi-hop result is a chain of them collapsed to its shortest path, so beyond one hop there is no single
+/// edge to attribute and it stays null.</summary>
+public sealed record RelatedMemory(Guid MemoryId, RelationType RelationType, int Hops, RelatedMemoryDirection Direction, string? Note = null);
 
 public interface IMemoryEdgeRepository
 {

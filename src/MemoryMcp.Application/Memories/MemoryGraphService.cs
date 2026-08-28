@@ -18,7 +18,8 @@ public sealed class MemoryGraphService(IMemoryEdgeRepository memoryEdgeRepositor
 
         return related
             .Where(r => byId.ContainsKey(r.MemoryId))
-            .Select(r => new RelatedMemoryDto(r.MemoryId, byId[r.MemoryId].Text, r.RelationType, r.Hops, byId[r.MemoryId].IsActive, r.Direction))
+            .Select(r => new RelatedMemoryDto(
+                r.MemoryId, byId[r.MemoryId].Text, r.RelationType, r.Hops, byId[r.MemoryId].IsActive, r.Direction, r.Note))
             .ToList();
     }
 
@@ -31,7 +32,7 @@ public sealed class MemoryGraphService(IMemoryEdgeRepository memoryEdgeRepositor
         var visibleEdges = edges.Where(e => nodeIds.Contains(e.FromMemoryId) && nodeIds.Contains(e.ToMemoryId));
 
         var nodes = items.Select(m => new GraphNodeDto(m.Id, m.Text, m.Category, m.IsActive, m.CreatedAt)).ToList();
-        var graphEdges = visibleEdges.Select(e => new GraphEdgeDto(e.FromMemoryId, e.ToMemoryId, e.RelationType)).ToList();
+        var graphEdges = visibleEdges.Select(e => new GraphEdgeDto(e.FromMemoryId, e.ToMemoryId, e.RelationType, e.Note)).ToList();
 
         return new SpaceGraphDto(nodes, graphEdges);
     }

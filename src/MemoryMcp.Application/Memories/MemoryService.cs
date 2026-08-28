@@ -169,7 +169,8 @@ public sealed class MemoryService(
                     continue;
                 }
 
-                memoryEdgeRepository.Add(new MemoryEdge(spaceId, factMemory.Id, existingHit.Memory.Id, relation.RelationType));
+                memoryEdgeRepository.Add(new MemoryEdge(
+                    spaceId, factMemory.Id, existingHit.Memory.Id, relation.RelationType, relation.Note));
 
                 // Require the same similarity confidence as an explicit forget before an LLM-classified
                 // "Updates" relation is allowed to deactivate a memory, so a hallucinated/misclassified

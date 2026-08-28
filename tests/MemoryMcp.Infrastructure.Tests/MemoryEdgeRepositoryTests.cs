@@ -108,6 +108,32 @@ public sealed class MemoryEdgeRepositoryTests(PostgresFixture fixture)
     }
 
     [Fact]
+    public async Task GetRelatedAsync_carries_the_edge_note_for_direct_relations_only()
+    {
+        using var db = fixture.CreateDbContext();
+        var spaceId = await SeedSpaceAsync(db);
+
+        var a = new Memory(spaceId, "a", embedding: null);
+        var b = new Memory(spaceId, "b", embedding: null);
+        var c = new Memory(spaceId, "c", embedding: null);
+        db.Memories.AddRange(a, b, c);
+        await db.SaveChangesAsync();
+
+        db.MemoryEdges.AddRange(
+            new MemoryEdge(spaceId, a.Id, b.Id, RelationType.Updates, "b said Stripe, a says otherwise"),
+            new MemoryEdge(spaceId, b.Id, c.Id, RelationType.Extends, "adds the team size to c"));
+        await db.SaveChangesAsync();
+
+        var repository = new MemoryEdgeRepository(db);
+        var related = await repository.GetRelatedAsync(a.Id, maxHops: 2);
+
+        // A note explains a single edge. At two hops the result is a chain collapsed to its shortest
+        // path, so there's no one edge to attribute it to and the note is deliberately dropped.
+        related.Should().ContainSingle(r => r.MemoryId == b.Id && r.Hops == 1 && r.Note == "b said Stripe, a says otherwise");
+        related.Should().ContainSingle(r => r.MemoryId == c.Id && r.Hops == 2 && r.Note == null);
+    }
+
+    [Fact]
     public async Task GetRelatedAsync_returns_empty_when_the_memory_has_no_outgoing_edges()
     {
         using var db = fixture.CreateDbContext();

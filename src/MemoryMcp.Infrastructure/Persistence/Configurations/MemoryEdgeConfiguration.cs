@@ -11,7 +11,7 @@ public sealed class MemoryEdgeConfiguration : IEntityTypeConfiguration<MemoryEdg
         builder.ToTable("memory_edges");
         builder.HasKey(e => e.Id);
 
-        builder.Property(e => e.Note).HasMaxLength(500);
+        builder.Property(e => e.Note).HasMaxLength(MemoryEdge.NoteMaxLength);
 
         // Cheap neighbor lookups in either direction for the recursive-CTE traversal in MemoryEdgeRepository.
         builder.HasIndex(e => new { e.SpaceId, e.FromMemoryId });

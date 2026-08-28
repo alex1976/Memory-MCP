@@ -56,7 +56,12 @@ public sealed class LlmFactExtractor(Lazy<ChatClient> client, IOptions<Extractio
     {
         var relations = item.Relations
             .Where(r => Guid.TryParse(r.ExistingMemoryId, out _) && Enum.TryParse<RelationType>(r.RelationType, ignoreCase: true, out _))
-            .Select(r => new ExtractedRelation(Guid.Parse(r.ExistingMemoryId), Enum.Parse<RelationType>(r.RelationType, ignoreCase: true)))
+            // The prompt asks for a short note, but nothing in the protocol enforces a length: the
+            // clamp to MemoryEdge.NoteMaxLength lives in the entity, so no caller can overflow the column.
+            .Select(r => new ExtractedRelation(
+                Guid.Parse(r.ExistingMemoryId),
+                Enum.Parse<RelationType>(r.RelationType, ignoreCase: true),
+                r.Note))
             .ToList();
 
         return new ExtractedFact(item.Text, item.Category, relations);
@@ -83,7 +88,10 @@ public sealed class LlmFactExtractor(Lazy<ChatClient> client, IOptions<Extractio
         "fact contradicts or replaces a candidate, 'Extends' if it adds detail to a candidate without " +
         "invalidating it, or 'Derives' if it is inferred by combining two or more candidates. Omit the relation " +
         "entirely for candidates the fact is unrelated to. Only ever reference candidate ids that were supplied " +
-        "verbatim; never invent an id.";
+        "verbatim; never invent an id. For every relation, set 'note' to one short sentence (at most 300 " +
+        "characters, in the language of the content) stating why that relation type applies — what the fact " +
+        "contradicts, what detail it adds, or which candidates it was inferred from. The note is read by humans " +
+        "auditing why a memory was superseded, so be specific rather than restating the relation type.";
 
     private const string FactsJsonSchema = """
         {
@@ -102,9 +110,10 @@ public sealed class LlmFactExtractor(Lazy<ChatClient> client, IOptions<Extractio
                       "type": "object",
                       "properties": {
                         "existingMemoryId": { "type": "string" },
-                        "relationType": { "type": "string", "enum": ["Updates", "Extends", "Derives"] }
+                        "relationType": { "type": "string", "enum": ["Updates", "Extends", "Derives"] },
+                        "note": { "type": ["string", "null"] }
                       },
-                      "required": ["existingMemoryId", "relationType"],
+                      "required": ["existingMemoryId", "relationType", "note"],
                       "additionalProperties": false
                     }
                   }
@@ -123,5 +132,5 @@ public sealed class LlmFactExtractor(Lazy<ChatClient> client, IOptions<Extractio
 
     private sealed record FactItem(string Text, string? Category, List<RelationItem> Relations);
 
-    private sealed record RelationItem(string ExistingMemoryId, string RelationType);
+    private sealed record RelationItem(string ExistingMemoryId, string RelationType, string? Note);
 }

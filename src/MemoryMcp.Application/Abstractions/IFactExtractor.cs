@@ -4,7 +4,9 @@ namespace MemoryMcp.Application.Abstractions;
 
 public sealed record MemoryCandidateDto(Guid Id, string Text, string? Category);
 
-public sealed record ExtractedRelation(Guid ExistingMemoryId, RelationType RelationType);
+/// <summary><paramref name="Note"/> is the extractor's short rationale for the classification, stored on
+/// <see cref="MemoryEdge.Note"/>; optional, since an extractor that doesn't produce one is still valid.</summary>
+public sealed record ExtractedRelation(Guid ExistingMemoryId, RelationType RelationType, string? Note = null);
 
 public sealed record ExtractedFact(string Text, string? Category, IReadOnlyList<ExtractedRelation> RelationsToExisting);
 

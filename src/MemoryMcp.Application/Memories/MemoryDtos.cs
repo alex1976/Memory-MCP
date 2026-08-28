@@ -11,7 +11,14 @@ public enum MemoryAction
 
 public sealed record MemorySummaryDto(Guid Id, string Text, int Version, Guid? DocumentId, bool IsActive, DateTimeOffset CreatedAt, string? Category);
 
-public sealed record RelatedMemoryDto(Guid Id, string Text, RelationType RelationType, int Hops, bool IsActive = true, RelatedMemoryDirection Direction = RelatedMemoryDirection.Outgoing);
+public sealed record RelatedMemoryDto(
+    Guid Id,
+    string Text,
+    RelationType RelationType,
+    int Hops,
+    bool IsActive = true,
+    RelatedMemoryDirection Direction = RelatedMemoryDirection.Outgoing,
+    string? Note = null);
 
 public sealed record MemorySearchResultDto(
     Guid Id, string Text, double Score, Guid? DocumentId, string? Category, IReadOnlyList<RelatedMemoryDto>? RelatedMemories = null);
@@ -22,6 +29,6 @@ public sealed record AddMemoryResult(Guid? MemoryId, MemoryAction Action, int Af
 
 public sealed record GraphNodeDto(Guid Id, string Text, string? Category, bool IsActive, DateTimeOffset CreatedAt);
 
-public sealed record GraphEdgeDto(Guid FromMemoryId, Guid ToMemoryId, RelationType RelationType);
+public sealed record GraphEdgeDto(Guid FromMemoryId, Guid ToMemoryId, RelationType RelationType, string? Note = null);
 
 public sealed record SpaceGraphDto(IReadOnlyList<GraphNodeDto> Nodes, IReadOnlyList<GraphEdgeDto> Edges);

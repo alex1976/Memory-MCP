@@ -22,24 +22,25 @@ public sealed class MemoryEdgeRepository(MemoryDbContext dbContext) : IMemoryEdg
         var outgoing = await TraverseOutgoingAsync(rootMemoryId, maxHops, cancellationToken);
         var incoming = await TraverseIncomingAsync(rootMemoryId, maxHops, cancellationToken);
 
-        return outgoing.Select(r => new RelatedMemory(r.ToId, (RelationType)r.RelationType, r.Hops, RelatedMemoryDirection.Outgoing))
-            .Concat(incoming.Select(r => new RelatedMemory(r.ToId, (RelationType)r.RelationType, r.Hops, RelatedMemoryDirection.Incoming)))
+        return outgoing.Select(r => new RelatedMemory(r.ToId, (RelationType)r.RelationType, r.Hops, RelatedMemoryDirection.Outgoing, r.Note))
+            .Concat(incoming.Select(r => new RelatedMemory(r.ToId, (RelationType)r.RelationType, r.Hops, RelatedMemoryDirection.Incoming, r.Note)))
             .ToList();
     }
 
     private Task<List<GraphRow>> TraverseOutgoingAsync(Guid rootMemoryId, int maxHops, CancellationToken cancellationToken) =>
         dbContext.Database.SqlQuery<GraphRow>(
             $"""
-            WITH RECURSIVE graph(to_id, relation_type, hops, path) AS (
-                SELECT "ToMemoryId", "RelationType", 1, ARRAY["FromMemoryId", "ToMemoryId"]
+            WITH RECURSIVE graph(to_id, relation_type, note, hops, path) AS (
+                SELECT "ToMemoryId", "RelationType", "Note", 1, ARRAY["FromMemoryId", "ToMemoryId"]
                 FROM memory_edges WHERE "FromMemoryId" = {rootMemoryId}
                 UNION ALL
-                SELECT e."ToMemoryId", e."RelationType", g.hops + 1, g.path || e."ToMemoryId"
+                SELECT e."ToMemoryId", e."RelationType", e."Note", g.hops + 1, g.path || e."ToMemoryId"
                 FROM memory_edges e
                 JOIN graph g ON e."FromMemoryId" = g.to_id
                 WHERE g.hops < {maxHops} AND e."ToMemoryId" <> ALL(g.path)
             )
-            SELECT to_id AS "ToId", relation_type AS "RelationType", MIN(hops) AS "Hops"
+            SELECT to_id AS "ToId", relation_type AS "RelationType", MIN(hops) AS "Hops",
+                   MIN(note) FILTER (WHERE hops = 1) AS "Note"
             FROM graph
             GROUP BY to_id, relation_type
             """).ToListAsync(cancellationToken);
@@ -50,19 +51,22 @@ public sealed class MemoryEdgeRepository(MemoryDbContext dbContext) : IMemoryEdg
     private Task<List<GraphRow>> TraverseIncomingAsync(Guid rootMemoryId, int maxHops, CancellationToken cancellationToken) =>
         dbContext.Database.SqlQuery<GraphRow>(
             $"""
-            WITH RECURSIVE graph(to_id, relation_type, hops, path) AS (
-                SELECT "FromMemoryId", "RelationType", 1, ARRAY["ToMemoryId", "FromMemoryId"]
+            WITH RECURSIVE graph(to_id, relation_type, note, hops, path) AS (
+                SELECT "FromMemoryId", "RelationType", "Note", 1, ARRAY["ToMemoryId", "FromMemoryId"]
                 FROM memory_edges WHERE "ToMemoryId" = {rootMemoryId}
                 UNION ALL
-                SELECT e."FromMemoryId", e."RelationType", g.hops + 1, g.path || e."FromMemoryId"
+                SELECT e."FromMemoryId", e."RelationType", e."Note", g.hops + 1, g.path || e."FromMemoryId"
                 FROM memory_edges e
                 JOIN graph g ON e."ToMemoryId" = g.to_id
                 WHERE g.hops < {maxHops} AND e."FromMemoryId" <> ALL(g.path)
             )
-            SELECT to_id AS "ToId", relation_type AS "RelationType", MIN(hops) AS "Hops"
+            SELECT to_id AS "ToId", relation_type AS "RelationType", MIN(hops) AS "Hops",
+                   MIN(note) FILTER (WHERE hops = 1) AS "Note"
             FROM graph
             GROUP BY to_id, relation_type
             """).ToListAsync(cancellationToken);
 
-    private sealed record GraphRow(Guid ToId, int RelationType, int Hops);
+    // Note is aggregated as MIN(note) FILTER (WHERE hops = 1): the grouping key is (node, relation type),
+    // so a note can only be attributed unambiguously to a direct edge — see RelatedMemory's remarks.
+    private sealed record GraphRow(Guid ToId, int RelationType, int Hops, string? Note);
 }

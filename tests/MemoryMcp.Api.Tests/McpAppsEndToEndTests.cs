@@ -243,6 +243,10 @@ public sealed class McpAppsEndToEndTests(McpApiFactory factory)
         graph!.Nodes.Should().Contain(n => n.Text.Contains("Jordan"));
         graph.Edges.Should().Contain(e => e.RelationType == RelationType.Extends);
 
+        // The widget renders the rationale as the edge's tooltip, so it has to survive extraction →
+        // MemoryEdge.Note → GraphEdgeDto → resource JSON, not just reach the database.
+        graph.Edges.Should().Contain(e => e.Note == TestSupport.FakeFactExtractor.RelationNote);
+
         await client.DisposeAsync();
     }
 

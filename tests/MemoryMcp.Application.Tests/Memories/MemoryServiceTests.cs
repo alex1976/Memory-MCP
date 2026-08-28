@@ -206,8 +206,9 @@ public sealed class MemoryServiceTests
         _embeddingProvider.EmbedBatchAsync(Arg.Is<IReadOnlyList<string>>(l => l != null && l.SequenceEqual(new[] { "Alex left Stripe" })), Arg.Any<CancellationToken>())
             .Returns(new[] { factEmbedding });
 
+        const string relationNote = "contradicts the Stripe employment stated by the candidate";
         var extractedFact = new ExtractedFact(
-            "Alex left Stripe", Category: null, RelationsToExisting: [new ExtractedRelation(existing.Id, RelationType.Updates)]);
+            "Alex left Stripe", Category: null, RelationsToExisting: [new ExtractedRelation(existing.Id, RelationType.Updates, relationNote)]);
         _factExtractor.ExtractAsync("Alex left Stripe and joined a startup", Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
             .Returns(new[] { extractedFact });
 
@@ -218,8 +219,11 @@ public sealed class MemoryServiceTests
         result.AffectedCount.Should().Be(1);
         result.MemoryIds.Should().HaveCount(1);
         _memoryRepository.Received(1).Add(Arg.Is<Memory>(m => m != null && m.Text == "Alex left Stripe"));
+        // The note is the only record of *why* this Updates deactivated an existing memory, so it has to
+        // reach the edge rather than being dropped between extraction and persistence.
         _memoryEdgeRepository.Received(1).Add(Arg.Is<MemoryEdge>(e =>
-            e != null && e.SpaceId == SpaceId && e.ToMemoryId == existing.Id && e.RelationType == RelationType.Updates));
+            e != null && e.SpaceId == SpaceId && e.ToMemoryId == existing.Id && e.RelationType == RelationType.Updates
+            && e.Note == relationNote));
         existing.IsActive.Should().BeFalse();
         await _unitOfWork.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
     }
