@@ -9,7 +9,22 @@ public enum MemoryAction
     Forget,
 }
 
-public sealed record MemorySummaryDto(Guid Id, string Text, int Version, Guid? DocumentId, bool IsActive, DateTimeOffset CreatedAt, string? Category);
+/// <summary><paramref name="CreatedBy"/>/<paramref name="UpdatedBy"/> are display names resolved from the
+/// corresponding ids; both are null for memories written before authorship was recorded. In a shared
+/// space the pair is what lets a reader tell their own facts from a colleague's, and
+/// <paramref name="UpdatedBy"/> names whoever last forgot or superseded the memory.</summary>
+public sealed record MemorySummaryDto(
+    Guid Id,
+    string Text,
+    int Version,
+    Guid? DocumentId,
+    bool IsActive,
+    DateTimeOffset CreatedAt,
+    string? Category,
+    Guid? CreatedByUserId = null,
+    string? CreatedBy = null,
+    Guid? UpdatedByUserId = null,
+    string? UpdatedBy = null);
 
 public sealed record RelatedMemoryDto(
     Guid Id,
@@ -21,7 +36,14 @@ public sealed record RelatedMemoryDto(
     string? Note = null);
 
 public sealed record MemorySearchResultDto(
-    Guid Id, string Text, double Score, Guid? DocumentId, string? Category, IReadOnlyList<RelatedMemoryDto>? RelatedMemories = null);
+    Guid Id,
+    string Text,
+    double Score,
+    Guid? DocumentId,
+    string? Category,
+    IReadOnlyList<RelatedMemoryDto>? RelatedMemories = null,
+    Guid? CreatedByUserId = null,
+    string? CreatedBy = null);
 
 public sealed record SearchMemoryResult(IReadOnlyList<MemorySearchResultDto> Matches, IReadOnlyList<MemorySummaryDto>? Profile);
 

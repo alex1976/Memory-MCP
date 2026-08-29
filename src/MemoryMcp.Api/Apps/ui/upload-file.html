@@ -58,6 +58,9 @@
     let fileName = null;
     let fileDocType = null;
     let fileIsPdf = false;
+    // Set to false when the caller holds no writable space (a Reader): selecting a file must not
+    // re-enable the button in that case, so every enable path goes through this flag.
+    let canUpload = true;
 
     document.getElementById('fileInput').addEventListener('change', onFileSelected);
 
@@ -108,7 +111,7 @@
           fileDocType = 'pdf';
           preview.textContent = `PDF selected (${(file.size / 1024).toFixed(1)} KB) — text will be extracted after upload.`;
           preview.style.display = 'block';
-          uploadBtn.disabled = false;
+          uploadBtn.disabled = !canUpload;
           setStatus(`Loaded "${file.name}".`);
         };
         reader.readAsDataURL(file);
@@ -121,7 +124,7 @@
         fileDocType = docTypeFor(ext);
         preview.textContent = fileContent.length > 2000 ? fileContent.slice(0, 2000) + '…' : fileContent;
         preview.style.display = 'block';
-        uploadBtn.disabled = false;
+        uploadBtn.disabled = !canUpload;
         setStatus(`Loaded "${file.name}" (${fileContent.length} characters).`);
       };
       reader.readAsText(file);
@@ -207,7 +210,7 @@
       } catch (e) {
         setStatus('Error: ' + e.message, 'error');
       } finally {
-        uploadBtn.disabled = !fileContent;
+        uploadBtn.disabled = !canUpload || !fileContent;
       }
     }
 
@@ -220,14 +223,25 @@
         const res = await sendRequest('resources/read', { uri: 'memory-mcp://spaces' });
         const text = res?.contents?.[0]?.text;
         const spaces = text ? JSON.parse(text) : [];
+        // Uploading is a write, so only writable spaces are offered. accessLevel is the effective
+        // level: a Reader's grant has already been capped to Read before it reaches here.
+        const writable = spaces.filter((s) => s.accessLevel === 'ReadWrite');
         const select = document.getElementById('spaceSelect');
-        spaces.forEach((s) => {
+        writable.forEach((s) => {
           const opt = document.createElement('option');
           opt.value = s.key;
           opt.textContent = `${s.name} (${s.key})${s.isDefault ? ' — active' : ''}`;
           select.appendChild(opt);
         });
-        setStatus(`Ready — ${spaces.length} space(s) available.`);
+
+        if (writable.length === 0) {
+          canUpload = false;
+          document.getElementById('uploadBtn').disabled = true;
+          setStatus('You have read-only access to every space, so there is nowhere to upload to.', 'error');
+          return;
+        }
+
+        setStatus(`Ready — ${writable.length} writable space(s) available.`);
       } catch (e) {
         setStatus('Standalone mode: ' + e.message, 'error');
       }

@@ -22,6 +22,7 @@ public sealed class MemoryServiceTests
     private readonly IMemoryEdgeRepository _memoryEdgeRepository = Substitute.For<IMemoryEdgeRepository>();
     private readonly IFactExtractor _factExtractor = Substitute.For<IFactExtractor>();
     private readonly IMemoryGraphService _memoryGraphService = Substitute.For<IMemoryGraphService>();
+    private readonly IUserRepository _userRepository = Substitute.For<IUserRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
 
     public MemoryServiceTests()
@@ -32,10 +33,26 @@ public sealed class MemoryServiceTests
             .Returns(Array.Empty<ExtractedFact>());
         _memoryGraphService.GetRelatedAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<RelatedMemoryDto>());
+        _userRepository.GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UserSummary>());
     }
 
     private MemoryService CreateService(ICurrentAccessContext accessContext) =>
-        new(_memoryRepository, _documentRepository, _embeddingProvider, _memoryEdgeRepository, _factExtractor, _memoryGraphService, _unitOfWork, accessContext);
+        new(_memoryRepository, _documentRepository, _embeddingProvider, _memoryEdgeRepository, _factExtractor,
+            _memoryGraphService, _userRepository, _unitOfWork, accessContext);
+
+    private static FakeAccessContext AsWriter(CurrentUser user, SpaceGrant? grant = null) =>
+        new() { User = user, Grants = [grant ?? ReadWriteGrant] };
+
+    private void StubUsers(params CurrentUser[] users) =>
+        _userRepository.GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(call => users
+                .Where(u => call.Arg<IReadOnlyCollection<Guid>>().Contains(u.Id))
+                .Select(u => new UserSummary(u.Id, u.Email, u.DisplayName, u.Role))
+                .ToList());
+
+    private static CurrentUser NewWriter(string displayName) =>
+        new(Guid.NewGuid(), $"{displayName.ToLowerInvariant()}@team.test", displayName, UserRole.Writer);
 
     [Fact]
     public async Task SearchMemoryAsync_throws_when_space_cannot_be_resolved()
@@ -373,5 +390,144 @@ public sealed class MemoryServiceTests
         result.Page.Should().Be(1);
         result.Limit.Should().Be(10);
         result.Items.Should().ContainSingle(m => m.Id == memory.Id);
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_save_attributes_the_document_and_the_memory_to_the_calling_user()
+    {
+        var alice = NewWriter("Alice");
+        var embedding = new float[] { 0.3f };
+        _embeddingProvider.EmbedAsync("remember this", Arg.Any<CancellationToken>()).Returns(embedding);
+        _memoryRepository.SearchAsync(SpaceId, embedding, ExtractionCandidateTopK, category: null, Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<MemorySearchHit>());
+
+        var service = CreateService(AsWriter(alice));
+
+        await service.AddMemoryAsync("remember this", MemoryAction.Save, category: null, containerTag: null);
+
+        _documentRepository.Received(1).Add(Arg.Is<Document>(d => d != null && d.CreatedByUserId == alice.Id && d.UpdatedByUserId == alice.Id));
+        _memoryRepository.Received(1).Add(Arg.Is<Memory>(m => m != null && m.CreatedByUserId == alice.Id && m.UpdatedByUserId == alice.Id));
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_save_records_who_superseded_a_colleagues_memory_without_reassigning_its_author()
+    {
+        var alice = NewWriter("Alice");
+        var bob = NewWriter("Bob");
+
+        var contentEmbedding = new float[] { 0.3f };
+        _embeddingProvider.EmbedAsync("Alex left Stripe", Arg.Any<CancellationToken>()).Returns(contentEmbedding);
+
+        // Bob's memory, above the forget threshold, superseded by Alice's save.
+        var bobsMemory = new Memory(SpaceId, "Alex is a PM at Stripe", contentEmbedding, createdByUserId: bob.Id);
+        _memoryRepository.SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, category: null, Arg.Any<CancellationToken>())
+            .Returns(new[] { new MemorySearchHit(bobsMemory, 0.9) });
+
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new float[] { 0.4f } });
+        _factExtractor.ExtractAsync("Alex left Stripe", Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedFact("Alex is between jobs", Category: null,
+                    RelationsToExisting: [new ExtractedRelation(bobsMemory.Id, RelationType.Updates)]),
+            });
+
+        var service = CreateService(AsWriter(alice));
+
+        await service.AddMemoryAsync("Alex left Stripe", MemoryAction.Save, category: null, containerTag: null);
+
+        // Authorship of the deactivated memory stays with Bob — Alice only appears as the member who
+        // deactivated it, which is the whole point of keeping the two ids apart.
+        bobsMemory.IsActive.Should().BeFalse();
+        bobsMemory.CreatedByUserId.Should().Be(bob.Id);
+        bobsMemory.UpdatedByUserId.Should().Be(alice.Id);
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_forget_records_the_member_who_forgot_a_colleagues_memory()
+    {
+        var alice = NewWriter("Alice");
+        var bob = NewWriter("Bob");
+
+        var embedding = new float[] { 0.5f };
+        _embeddingProvider.EmbedAsync("obsolete fact", Arg.Any<CancellationToken>()).Returns(embedding);
+
+        var bobsMemory = new Memory(SpaceId, "obsolete fact", embedding, createdByUserId: bob.Id);
+        _memoryRepository.SearchAsync(SpaceId, embedding, 3, category: null, Arg.Any<CancellationToken>())
+            .Returns(new[] { new MemorySearchHit(bobsMemory, 0.95) });
+
+        var service = CreateService(AsWriter(alice));
+
+        await service.AddMemoryAsync("obsolete fact", MemoryAction.Forget, category: null, containerTag: null);
+
+        bobsMemory.IsActive.Should().BeFalse();
+        bobsMemory.CreatedByUserId.Should().Be(bob.Id);
+        bobsMemory.UpdatedByUserId.Should().Be(alice.Id);
+    }
+
+    [Fact]
+    public async Task SearchMemoryAsync_returns_other_members_memories_and_names_their_author()
+    {
+        var alice = NewWriter("Alice");
+        var bob = NewWriter("Bob");
+        StubUsers(alice, bob);
+
+        var embedding = new float[] { 0.1f };
+        _embeddingProvider.EmbedAsync("who works where", Arg.Any<CancellationToken>()).Returns(embedding);
+        _memoryRepository.SearchAsync(SpaceId, embedding, 10, category: null, Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new MemorySearchHit(new Memory(SpaceId, "Alice's fact", embedding, createdByUserId: alice.Id), 0.9),
+                new MemorySearchHit(new Memory(SpaceId, "Bob's fact", embedding, createdByUserId: bob.Id), 0.8),
+            });
+
+        // Alice searches: a member reads the whole space, not just their own writes.
+        var service = CreateService(AsWriter(alice, ReadOnlyGrant));
+
+        var result = await service.SearchMemoryAsync("who works where", keyword: null, category: null, includeProfile: false, containerTag: null);
+
+        result.Matches.Should().HaveCount(2);
+        result.Matches.Should().ContainSingle(m => m.Text == "Bob's fact" && m.CreatedBy == "Bob" && m.CreatedByUserId == bob.Id);
+        result.Matches.Should().ContainSingle(m => m.Text == "Alice's fact" && m.CreatedBy == "Alice");
+    }
+
+    [Fact]
+    public async Task ListMemoriesAsync_names_both_the_author_and_whoever_last_changed_each_memory()
+    {
+        var alice = NewWriter("Alice");
+        var bob = NewWriter("Bob");
+        StubUsers(alice, bob);
+
+        var memory = new Memory(SpaceId, "Bob wrote this, Alice forgot it", embedding: null, createdByUserId: bob.Id);
+        memory.Forget(byUserId: alice.Id);
+        _memoryRepository.ListAsync(SpaceId, 1, 10, Arg.Any<CancellationToken>()).Returns((new[] { memory }, 1));
+
+        var service = CreateService(AsWriter(alice, ReadOnlyGrant));
+
+        var result = await service.ListMemoriesAsync(containerTag: null, page: 1, limit: 10);
+
+        var item = result.Items.Should().ContainSingle().Subject;
+        item.CreatedBy.Should().Be("Bob");
+        item.UpdatedBy.Should().Be("Alice");
+        item.IsActive.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ListMemoriesAsync_leaves_pre_users_memories_unattributed_rather_than_failing()
+    {
+        StubUsers();
+
+        var legacy = new Memory(SpaceId, "written before users existed", embedding: null);
+        _memoryRepository.ListAsync(SpaceId, 1, 10, Arg.Any<CancellationToken>()).Returns((new[] { legacy }, 1));
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
+
+        var result = await service.ListMemoriesAsync(containerTag: null, page: 1, limit: 10);
+
+        var item = result.Items.Should().ContainSingle().Subject;
+        item.CreatedByUserId.Should().BeNull();
+        item.CreatedBy.Should().BeNull();
+        // No ids to resolve means no query at all.
+        await _userRepository.DidNotReceive().GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>());
     }
 }

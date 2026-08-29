@@ -32,7 +32,16 @@ public sealed class ApiKeyAuthenticationHandler(
 
         currentAccessContext.Initialize(snapshot);
 
-        var claims = new[] { new Claim(ClaimTypes.NameIdentifier, snapshot.ApiKeyId.ToString()) };
+        // The key identifies the request, the user identifies the person behind it; both are on the
+        // principal so request logging can answer "who did what" without reaching into the access context.
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, snapshot.ApiKeyId.ToString()),
+            new Claim("user_id", snapshot.User.Id.ToString()),
+            new Claim(ClaimTypes.Email, snapshot.User.Email),
+            new Claim(ClaimTypes.Name, snapshot.User.DisplayName),
+            new Claim(ClaimTypes.Role, snapshot.User.Role.ToString()),
+        };
         var identity = new ClaimsIdentity(claims, Scheme.Name);
         var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme.Name);
         return AuthenticateResult.Success(ticket);

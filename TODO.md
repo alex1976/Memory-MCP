@@ -10,6 +10,10 @@ Already done and on `main`'s working tree:
 - **pgvector migration** (was item 1, the largest item on this list) — `halfvec(3072)` column with an HNSW
   cosine index, KNN pushed into SQL, embedding width made schema-bound. See
   [docs/pgvector-halfvec-search.md](docs/pgvector-halfvec-search.md).
+- **Multi-user spaces** (2026-08-29) — `User` + `Writer`/`Reader` roles, keys as credentials of a user,
+  the role as a ceiling over per-space grants, and `CreatedBy`/`UpdatedBy` on memories and documents.
+  Closes **T1** and the identity half of **T3**; see
+  [docs/multi-user-spaces.md](docs/multi-user-spaces.md) and the per-item notes below.
 
 ---
 
@@ -86,24 +90,35 @@ be written to by **several people** rather than one.
 *between* spaces is solid. What is missing is everything that only matters once two authors share one
 space.
 
+**Update (2026-08-29): identity and attribution now exist too** — `User`, `Writer`/`Reader` roles, keys
+as credentials of a user, and `CreatedBy`/`UpdatedBy` on memories and documents
+([docs/multi-user-spaces.md](docs/multi-user-spaces.md)). Several people can share a space safely enough
+to be attributed; what is still missing is the *policy* around cross-author writes (T2), defence in
+depth (T8), and any way to onboard someone without an INSERT (T9). Item notes below are marked
+individually.
+
 **Prerequisite decision — one key per person, not one key per team.** Everything below assumes it. A
 shared team key makes attribution (T1) impossible and turns revocation into "rotate the key for
 everyone". Recorded here because several items become meaningless if this is decided the other way.
+**Decided and implemented this way on 2026-08-29**: `ApiKey.UserId` is required, so an unattributed
+credential is no longer representable.
 
-## T1. Attribution: writes have no author
+## T1. Attribution: writes have no author — **DONE (2026-08-29)**
 
-**Where:** `src/MemoryMcp.Domain/Memory.cs`, `Document.cs`, `MemoryEdge.cs`,
-`src/MemoryMcp.Application/Memories/MemoryDtos.cs`
+`Memory` and `Document` carry `CreatedByUserId` and `UpdatedByUserId`, exposed on
+`MemorySearchResultDto`, `MemorySummaryDto`, `DocumentSummaryDto` and `DocumentDetailDto` as both ids
+and resolved display names (batched, one query per call).
 
-All three entities carry `SpaceId` but no `CreatedBy`. In a shared space that means you cannot tell who
-wrote a fact, cannot filter "mine vs the team's", cannot weight trust, and cannot reconstruct anything
-after the fact.
+Two deviations from the sketch above, both deliberate:
 
-- `Memory.CreatedByUserId` **and** `CreatedByApiKeyId` — the second distinguishes "the person wrote it"
-  from "their agent/CI wrote it".
-- Same on `Document` and `MemoryEdge`.
-- Expose them on `MemorySearchResultDto` and `MemorySummaryDto`, otherwise the LLM reading the results
-  has no way to cite the source.
+- **No `CreatedByApiKeyId`.** "The person" vs "their CI" is what `ApiKey.Label` already records, and a
+  second attribution column on every row buys a distinction nothing currently consumes. Add it when
+  something needs to act on it.
+- **No attribution on `MemoryEdge`.** An edge is a derived artifact of the save that created it, and its
+  `FromMemoryId` leads to a memory that already carries the author.
+
+Still open: filtering "mine vs the team's" is possible now that the column exists, but no tool exposes
+it — see T6, which is where it would belong.
 
 ## T2. Automatic forget/supersede becomes destructive
 
@@ -117,32 +132,47 @@ similarity is ≥ `ForgetSimilarityThreshold` (0.8); a forget deactivates the to
 threshold. With a single author that is reasonable — you are rewriting your own memory. With several, one
 member's save **silently deactivates a colleague's memory**, with no record of who or when.
 
-- `Memory.Forget()` must record `ForgottenByUserId` and `ForgottenAt`; today it only touches `IsActive`
-  and `UpdatedAt`.
+- ~~`Memory.Forget()` must record `ForgottenByUserId` and `ForgottenAt`~~ **Done (2026-08-29):**
+  `Forget(byUserId:)` stamps `UpdatedByUserId`/`UpdatedAt`, so a deactivation is now attributable —
+  both for an explicit forget and for a save that supersedes someone else's memory. A separate
+  `ForgottenAt` was not added: `UpdatedAt` already dates it, and a memory's text is never edited in
+  place, so the two would always be the same value.
+  **The deactivation itself is still silent** — the rest of this item is unchanged.
 - Cross-author supersede policy: create the `Updates` edge but do **not** deactivate another author's
-  memory — leave it active and surface both as a conflict, or mark it contested.
+  memory — leave it active and surface both as a conflict, or mark it contested. This is now
+  *expressible* (the save knows both the caller and the target's author) but not yet implemented.
 - Explicit forget of someone else's memory should need a higher access level (see T4) or an explicit
   confirmation step.
 - Optimistic concurrency: two agents updating the same fact in parallel currently overwrite each other
   unnoticed. `Memory.Version` is the natural token — which decides item **3** above in favour of "keep
   it and make it mean something".
 
-## T3. Identity: there is no user, so there is no onboarding
+## T3. Identity — **PARTLY DONE (2026-08-29)**
 
-**Where:** `src/MemoryMcp.Domain/ApiKey.cs`, `ApiKeySpaceGrant.cs`,
+**Where:** `src/MemoryMcp.Domain/User.cs`, `ApiKey.cs`, `ApiKeySpaceGrant.cs`,
 `src/MemoryMcp.Infrastructure/Persistence/Repositories/ApiKeyRepository.cs`
 
-The principal is the key, and grants hang off the key. Practical consequence: adding a person means
-minting a key and hand-inserting one grant row per space; removing them means finding all their keys. It
-does not scale past three or four people.
+Done:
 
-- Introduce `User`, `Team`, `TeamMembership(TeamId, UserId, Role)`; `Space.OwnerTeamId`.
-- `ApiKey.UserId` — a key becomes a *credential of* a user, who may hold several (laptop, CI, agent).
-- Move grants onto team/user; `FindActiveAccessByHashAsync` resolves permissions through membership in a
-  single joined query.
-- **Keep the shape of `SpaceGrant` and `ICurrentAccessContext` unchanged.** Only the construction of
-  `ApiKeyAccessSnapshot` changes; every service above it keeps working untouched. This is what makes the
-  item tractable.
+- `User` (email, display name, role, `IsActive`) and `ApiKey.UserId` — a key is now a *credential of* a
+  user, who may hold several. `ApiKey.OwnerEmail` was dropped, since `users.email` supersedes it.
+- `FindActiveAccessByHashAsync` resolves key → user → grants, joins `users.IsActive` (so deactivating
+  one person invalidates all their credentials), and caps each grant by the user's role.
+- The shape of `SpaceGrant` and `ICurrentAccessContext` was kept: only `ApiKeyAccessSnapshot`'s
+  construction changed (plus an additive `User` member on the context), so every service above it kept
+  working. This is what made the item tractable, as predicted.
+
+Deliberately **not** done, because nothing yet needs it:
+
+- **No `Team`/`TeamMembership`/`Space.OwnerTeamId`.** With grants still hanging off the key, sharing a
+  space means minting keys with the same grant — fine for a handful of people, and a team layer would
+  have doubled the surface of this change. Add it when onboarding volume, not sharing, becomes the
+  problem.
+- **Grants were not moved onto the user.** Consequence: adding a space for a person who holds three
+  keys is still three grant rows. This is the practical scaling limit called out above, and it is what
+  a `Team` (or at least user-level grants) would fix.
+
+Still open, and now the binding constraint: **onboarding** — see T9.
 
 ## T4. `AccessLevel` is too coarse
 
@@ -152,6 +182,13 @@ does not scale past three or four people.
 `Read`/`ReadWrite` is not enough: today anyone who can write can also forget the entire space's
 knowledge. Wanted, at minimum: `Read` < `Contribute` (adds but cannot forget) < `Curate` < `Admin`
 (manages members and grants).
+
+**Unchanged by the 2026-08-29 multi-user work, on purpose.** `UserRole` (`Writer`/`Reader`) was added
+*alongside* `AccessLevel`, not in place of it: the role is a per-person ceiling, the grant is per-space,
+and the effective level is the lower of the two. Neither scale gained a value, so no stored row was
+renumbered. Note the two are persisted differently and the reason matters here: `UserRole` is a **string**
+column precisely so it can gain values freely, while `AccessLevel` is still an ordered `int` — so the
+migration trap below applies to `AccessLevel` alone.
 
 **Migration trap:** the enum is ordered and `Satisfies`/`HasAccess` compare with `>=`, but
 `ApiKeySpaceGrantConfiguration` configures no conversion, so EF persists it as `int`. Inserting new values
@@ -179,6 +216,11 @@ current question. The "stable and recent" distinction promised in [CLAUDE.md](CL
 counterpart in the code. Needs a stability flag (or a reserved category) for the team-level context, plus
 *my* recent memories rather than anyone's.
 
+The "*my* recent memories" half is now cheap: `memories.CreatedByUserId` exists and is indexed, and
+`ICurrentAccessContext.User.Id` is available in `MemoryService` — it needs a
+`ListRecentActiveByAuthorAsync` and a decision about how the two halves are mixed in one profile. Note
+this is the one place a *deliberate* filter by author belongs; search itself must stay unfiltered.
+
 ## T7. Search covers exactly one space
 
 **Where:** `src/MemoryMcp.Application/Abstractions/AccessContextExtensions.cs` (`RequireSpace`),
@@ -202,13 +244,25 @@ happens downstream in `DocumentService.GetDocumentAsync`, which is correct today
 next method can forget. With several teams' data in one database this is the most severe risk class. A
 global query filter on `SpaceId` is cheap and makes the omission harmless.
 
+**Unchanged by the multi-user work** — a global query filter needs an ambient space on the `DbContext`,
+which fights the legitimately multi-space queries (`SpaceRepository.GetCountsAsync`, `ApiKeyRepository`),
+so it stays a decision of its own. What was added instead is *external* evidence that today's single
+barrier holds: `McpMultiUserEndToEndTests` proves over HTTP that a memory in an ungranted space is
+unreachable by semantic search, by keyword search, and by naming its space key. That is a regression
+test, not defence in depth — this item is still open and still the most severe class.
+
 ## T9. Provisioning does not exist
 
 **Where:** `src/MemoryMcp.Api/Program.cs` (`SeedDevDataAsync`)
 
-Spaces, keys and grants are only ever created by the `--seed` dev path, writing rows directly. A team
-cannot onboard itself. Needs an admin API or CLI: create space, invite user, mint/revoke key, change
-access level. Ties into item **1** — if key lookups get cached, revocation must evict the cache entry.
+Spaces, users, keys and grants are only ever created by the `--seed` dev path, writing rows directly
+(it now seeds two users and two spaces, but it is still a dev fixture, not provisioning). A team cannot
+onboard itself. Needs an admin API or CLI: create space, invite user, mint/revoke key, change role,
+change access level, deactivate user. Ties into item **1** — if key lookups get cached, revocation and
+user deactivation must evict the cache entry.
+
+With identity now in place (T3) this is the binding constraint on actually using multi-user spaces:
+everything the runtime needs exists, but the only way to add a person is a hand-written INSERT.
 
 ## T10. Operational items that become blocking
 
@@ -217,20 +271,24 @@ Already listed under *Smaller observations* as nice-to-haves; with N members the
 - **Rate limiting on `/mcp`** — public HTTPS endpoint guarded only by an API key.
 - **Two DB queries per request to authenticate** (item **1**) — multiplied by team traffic.
 - **Structured logging of tool calls** with space *and user* — without it, in a team, "who did what" is
-  unanswerable even in principle.
+  unanswerable even in principle. The user is now available to log two ways: `ICurrentAccessContext.User`
+  inside the services, and the `user_id`/name/role claims the authentication handler puts on the
+  principal (added so logging need not reach into the access context). Only the logging itself is left.
 - **Per-space quotas** — every write pays for embedding plus LLM extraction, and that cost now multiplies
   by the number of members.
 - **Graph-enrichment N+1** (item **2**) — 9 sequential round trips per search.
 
 ## Suggested phasing
 
-1. **Make sharing safe** — T1, T2, T8. No new concepts, only columns and policy: attribution,
-   `ForgottenBy*`, the cross-author supersede rule, `Version` as a concurrency token, the global query
-   filter. One migration, changes confined to `MemoryService`. Best risk/benefit ratio, and it prejudges
-   none of the later choices.
-2. **Identity and provisioning** — T3, T4, T9. Without this a team cannot onboard at all.
-3. **Team-quality recall** — T6, T7, plus provenance in results.
-4. **Operations** — T10.
+1. ~~**Make sharing safe**~~ — **partly done (2026-08-29).** Attribution (T1) and the identity it needs
+   (T3) landed together, since a `CreatedBy` with nothing to point at is not worth a migration; the
+   provenance intended for step 3 came with them. What remains of this step: the cross-author supersede
+   rule and `Version` as a concurrency token (T2), and the global query filter (T8).
+2. **Provisioning** — T9, now the binding constraint: the runtime supports several users, but the only
+   way to create one is an INSERT. T4 (finer access levels) is independent and can wait.
+3. **Team-quality recall** — T6, T7. Provenance in results is done.
+4. **Operations** — T10. Structured logging of tool calls now has a user id to log
+   (`ICurrentAccessContext.User`, and the `user_id`/name/role claims on the principal).
 
 ---
 

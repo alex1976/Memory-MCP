@@ -34,11 +34,12 @@ public sealed class SpaceServiceTests
     }
 
     [Fact]
-    public async Task WhoAmIAsync_reports_active_space_and_full_space_list()
+    public async Task WhoAmIAsync_reports_the_user_behind_the_key_alongside_the_space_list()
     {
         var spaceId = Guid.NewGuid();
         var grant = new SpaceGrant(spaceId, "default", "Default", AccessLevel.Read, IsDefault: true);
-        var accessContext = new FakeAccessContext { Grants = [grant], OwnerLabel = "dev-key" };
+        var reader = new CurrentUser(Guid.NewGuid(), "reader@team.test", "Rita Reader", UserRole.Reader);
+        var accessContext = new FakeAccessContext { Grants = [grant], OwnerLabel = "laptop", User = reader };
 
         _spaceRepository.GetCountsAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<SpaceCounts>());
@@ -48,9 +49,35 @@ public sealed class SpaceServiceTests
         var result = await service.WhoAmIAsync();
 
         result.ApiKeyId.Should().Be(accessContext.ApiKeyId);
-        result.Label.Should().Be("dev-key");
+        // The label describes the credential; the identity is the user.
+        result.Label.Should().Be("laptop");
+        result.UserId.Should().Be(reader.Id);
+        result.UserEmail.Should().Be("reader@team.test");
+        result.UserDisplayName.Should().Be("Rita Reader");
+        result.UserRole.Should().Be("Reader");
         result.ActiveSpaceKey.Should().Be("default");
         result.Spaces.Should().ContainSingle(s => s.Key == "default");
+    }
+
+    [Fact]
+    public async Task ListSpacesAsync_lists_every_space_the_key_is_granted()
+    {
+        var personal = new SpaceGrant(Guid.NewGuid(), "personal", "Personal", AccessLevel.ReadWrite, IsDefault: true);
+        var team = new SpaceGrant(Guid.NewGuid(), "team", "Team", AccessLevel.ReadWrite, IsDefault: false);
+        var readOnly = new SpaceGrant(Guid.NewGuid(), "archive", "Archive", AccessLevel.Read, IsDefault: false);
+        var accessContext = new FakeAccessContext { Grants = [personal, team, readOnly] };
+
+        _spaceRepository.GetCountsAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<SpaceCounts>());
+
+        var service = new SpaceService(_spaceRepository, accessContext, _unitOfWork);
+
+        var result = await service.ListSpacesAsync();
+
+        // One key, N spaces, each with its own level — and the level reported is the effective one.
+        result.Should().HaveCount(3);
+        result.Should().ContainSingle(s => s.Key == "archive" && s.AccessLevel == "Read");
+        result.Should().ContainSingle(s => s.Key == "team" && s.AccessLevel == "ReadWrite" && !s.IsDefault);
     }
 
     [Fact]

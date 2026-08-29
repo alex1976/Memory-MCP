@@ -8,12 +8,17 @@ internal sealed class FakeEmbeddingProvider : IEmbeddingProvider
 {
     public int Dimensions => VectorSettings.Dimensions;
 
-    public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken = default)
+    /// <summary>Exposed statically so seeded rows written straight to the database (bypassing the tools)
+    /// carry the same vectors a save through the API would have produced.</summary>
+    public static float[] EmbeddingFor(string text)
     {
-        var vector = new float[Dimensions];
+        var vector = new float[VectorSettings.Dimensions];
         vector[0] = (text.GetHashCode(StringComparison.Ordinal) % 1000) / 1000f;
-        return Task.FromResult(vector);
+        return vector;
     }
+
+    public Task<float[]> EmbedAsync(string text, CancellationToken cancellationToken = default) =>
+        Task.FromResult(EmbeddingFor(text));
 
     public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken cancellationToken = default)
     {

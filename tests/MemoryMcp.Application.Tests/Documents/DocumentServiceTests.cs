@@ -16,11 +16,16 @@ public sealed class DocumentServiceTests
     private static readonly SpaceGrant ReadWriteGrant = new(SpaceId, "default", "Default", AccessLevel.ReadWrite, IsDefault: true);
 
     private readonly IDocumentRepository _documentRepository = Substitute.For<IDocumentRepository>();
+    private readonly IUserRepository _userRepository = Substitute.For<IUserRepository>();
     private readonly IUnitOfWork _unitOfWork = Substitute.For<IUnitOfWork>();
     private readonly IPdfTextExtractor _pdfTextExtractor = Substitute.For<IPdfTextExtractor>();
 
+    public DocumentServiceTests() =>
+        _userRepository.GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<UserSummary>());
+
     private DocumentService CreateService(ICurrentAccessContext accessContext) =>
-        new(_documentRepository, accessContext, _unitOfWork, _pdfTextExtractor);
+        new(_documentRepository, _userRepository, accessContext, _unitOfWork, _pdfTextExtractor);
 
     [Fact]
     public async Task ListDocumentsAsync_throws_when_space_cannot_be_resolved()
@@ -135,6 +140,57 @@ public sealed class DocumentServiceTests
         var act = async () => await service.CreateDocumentAsync("report.pdf", "pdf", "not-base64!!", null, containerTag: null);
 
         await act.Should().ThrowAsync<DocumentExtractionException>();
+    }
+
+    [Fact]
+    public async Task CreateDocumentAsync_attributes_the_document_to_the_calling_user()
+    {
+        var alice = new CurrentUser(Guid.NewGuid(), "alice@team.test", "Alice", UserRole.Writer);
+        var service = CreateService(new FakeAccessContext { User = alice, Grants = [ReadWriteGrant] });
+
+        var result = await service.CreateDocumentAsync("Notes", "text", "raw content", null, containerTag: null);
+
+        result.CreatedByUserId.Should().Be(alice.Id);
+        result.CreatedBy.Should().Be("Alice");
+        _documentRepository.Received(1).Add(Arg.Is<Document>(d =>
+            d != null && d.CreatedByUserId == alice.Id && d.UpdatedByUserId == alice.Id));
+    }
+
+    [Fact]
+    public async Task ListDocumentsAsync_returns_other_members_documents_and_names_their_author()
+    {
+        var alice = new CurrentUser(Guid.NewGuid(), "alice@team.test", "Alice", UserRole.Writer);
+        var bobId = Guid.NewGuid();
+        _userRepository.GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new UserSummary(bobId, "bob@team.test", "Bob", UserRole.Writer) });
+
+        var bobsDocument = new Document(SpaceId, "Bob's upload", "text", "content", createdByUserId: bobId);
+        _documentRepository.ListAsync(SpaceId, 1, 10, Arg.Any<CancellationToken>())
+            .Returns((new[] { bobsDocument }, 1));
+
+        var service = CreateService(new FakeAccessContext { User = alice, Grants = [ReadGrant] });
+
+        var result = await service.ListDocumentsAsync(containerTag: null, page: 1, limit: 10);
+
+        result.Items.Should().ContainSingle(d => d.CreatedBy == "Bob" && d.CreatedByUserId == bobId);
+    }
+
+    [Fact]
+    public async Task GetDocumentAsync_names_the_author_of_another_members_document()
+    {
+        var bobId = Guid.NewGuid();
+        _userRepository.GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new UserSummary(bobId, "bob@team.test", "Bob", UserRole.Writer) });
+
+        var document = new Document(SpaceId, "Title", "note", "raw content", "summary", createdByUserId: bobId);
+        _documentRepository.GetByIdAsync(document.Id, Arg.Any<CancellationToken>()).Returns(document);
+
+        var service = CreateService(new FakeAccessContext { Grants = [ReadGrant] });
+
+        var result = await service.GetDocumentAsync(document.Id);
+
+        result.CreatedBy.Should().Be("Bob");
+        result.RawContent.Should().Be("raw content");
     }
 
     [Fact]

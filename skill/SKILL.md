@@ -15,7 +15,7 @@ already known.
 
 | Tool | Access | Parameters | When to use it |
 | --- | --- | --- | --- |
-| `whoAmI` | — | none | At the start of a conversation if you don't know which space is active or what permissions you have |
+| `whoAmI` | — | none | At the start of a conversation if you don't know which space is active, who you are authenticated as, or what permissions you have |
 | `listSpaces` | — | none | To discover all spaces accessible with this API Key before saving/searching in a specific one |
 | `setActiveSpace` | — | `spaceKey` (required) | To switch the active space yourself, when you already know the exact target key (e.g. from `listSpaces`) and don't need to show the user a picker |
 | `search_memory` | Read | `query`, `keyword`, `category` (at least one), `includeProfile` (default `true`), `containerTag` | To retrieve existing memories before answering or before saving a new one |
@@ -27,6 +27,21 @@ already known.
 
 If `containerTag` is omitted, all tools operate on the current API Key's "active" space
 (`listSpaces`/`whoAmI` indicate which one that is).
+
+### Users, roles, and shared spaces
+
+A space can be shared by several people, so treat "Access" above as what *this* caller may do:
+
+- The authenticated user is either a **`Writer`** (read/write) or a **`Reader`** (read only), reported by
+  `whoAmI` as `userRole`. A `Reader` gets a tool error from `add_memory` and `create_document` — don't
+  retry, and don't offer to save; say that the user's account is read-only.
+- `listSpaces` reports the **effective** access level per space, already accounting for the role. Check
+  it before proposing a write to a specific `containerTag`.
+- Reads are **not** filtered by author: search and listings return everything in the space, whoever wrote
+  it. Results carry `createdBy`/`updatedBy` display names — use them when it matters who a fact came
+  from ("Bob recorded that…"), especially before contradicting or forgetting someone else's memory.
+- `forget` and a contradicting `save` can deactivate a **colleague's** memory. Prefer confirming with the
+  user before forgetting a memory whose `createdBy` is not the current user.
 
 ## Search modes in `search_memory`
 

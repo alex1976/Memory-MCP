@@ -4,6 +4,8 @@
 
 Remote MCP (Model Context Protocol) server for storing, retrieving, and semantically searching
 "memories" on behalf of AI agents, organized into multi-tenant **spaces** and protected by API Key.
+A space can be shared by several **users** — each a `Writer` or a `Reader`, each attributed on what
+they write.
 
 Full functional specification: [CLAUDE.md](CLAUDE.md).
 
@@ -54,15 +56,45 @@ calls the application service, and formats the output — no business logic in t
 
 ### Authentication and multi-tenancy
 
-- Every **API Key** is associated with one or more **spaces**, with an access level (`Read` or `ReadWrite`) per
-  space, and one space marked as "active" (`IsDefault`).
+See [docs/multi-user-spaces.md](docs/multi-user-spaces.md) for the full design of users, roles, and
+write attribution.
+
+- Every **API Key** belongs to exactly one **user** and is granted one or more **spaces**, with an access
+  level (`Read` or `ReadWrite`) per space and one space marked as "active" (`IsDefault`).
+- A **user** is either a **`Writer`** (read/write) or a **`Reader`** (read only). The role is a ceiling
+  that applies everywhere; the grant is what was given on one space. The **effective** access level is
+  the lower of the two, so a Reader holding a `ReadWrite` grant is still read-only, and demoting someone
+  to Reader removes write access on every space at once without touching a grant row.
+- The capping is applied once, where the access snapshot is built (`ApiKeyRepository`), so every
+  consumer — tool checks, `listSpaces`, `whoAmI`, the write-capable widgets — reads the same effective
+  level and none of them can disagree about it.
 - `ApiKeyAuthenticationHandler` (`src/MemoryMcp.Api/Auth`) reads the key from the `X-Api-Key` header (or
   `Authorization: Bearer <key>`), validates it against the database (SHA-256 hash, never the plaintext key), and
   populates `CurrentAccessContext`, a scoped service injected into the application services.
+- Deactivating a user (`users.IsActive`) stops **all** of their keys from authenticating, without having
+  to find each credential they minted. Their display name is still resolved, so what they wrote while
+  active does not become anonymous.
 - The tools' `containerTag` parameter corresponds to the `spaces.key` column; if omitted, the current
   key's "active" space is used.
+- **Isolation is per space**: every read resolves exactly one space and filters on it, so no search or
+  listing crosses a space boundary. A space the key holds no grant on is indistinguishable from one that
+  does not exist. **Within** a space nothing is filtered by author — every member reads the whole
+  space's knowledge.
 - Authorization/space-not-found errors are translated into MCP tool results with `isError=true`
   (never unhandled exceptions or 500s).
+
+### Write attribution
+
+- `memories` and `documents` both carry `CreatedByUserId` and `UpdatedByUserId`, exposed on the tool
+  results as ids **and** resolved display names (`createdBy`, `updatedBy`), so a model reading a search
+  result can cite who wrote each fact without a second call.
+- The two are kept apart because in a shared space they frequently differ: `UpdatedByUserId` is the
+  record of who *deactivated* a memory, whether by an explicit `forget` or by a save whose extracted
+  fact superseded it, while `CreatedByUserId` keeps naming the original author.
+- Names are resolved in one batched lookup per call, so a page of results costs one extra query rather
+  than one per row — and none at all when nothing in the result set is attributed.
+- Rows written before users existed keep NULL authorship and are reported as unattributed rather than
+  guessed at.
 
 ### Semantic search
 
@@ -163,10 +195,11 @@ configuration alone.
 | Table | Description |
 | --- | --- |
 | `spaces` | Logical space (`key` unique = `containerTag`, `name`, `description`) |
-| `api_keys` | API key (only the hash is stored, never the plaintext value) |
-| `api_key_space_grants` | `Read`/`ReadWrite` permission of an API Key on a space + "active space" flag |
-| `documents` | Source document (title, type, status, summary, raw content) |
-| `memories` | Extracted memory (text, optional category, `halfvec(3072)` embedding with an HNSW cosine index, version, `is_active` for soft-delete/"forget") |
+| `users` | Person (`email` unique, display name, `role` = `Writer`/`Reader` stored as text, `is_active`) |
+| `api_keys` | API key belonging to one user (only the hash is stored, never the plaintext value; `label` says *which* credential — laptop, CI — not whose) |
+| `api_key_space_grants` | `Read`/`ReadWrite` permission of an API Key on a space + "active space" flag; capped at read time by the owning user's role |
+| `documents` | Source document (title, type, status, summary, raw content, `created_by_user_id`/`updated_by_user_id`) |
+| `memories` | Extracted memory (text, optional category, `halfvec(3072)` embedding with an HNSW cosine index, version, `is_active` for soft-delete/"forget", `created_by_user_id`/`updated_by_user_id`) |
 | `memory_edges` | Typed, directed graph edge between two memories (`Updates`/`Extends`/`Derives`), scoped to a space, with the extractor's rationale in `note` |
 
 ## Available MCP tools
@@ -176,7 +209,8 @@ and `add_memory` are enriched by graph memory (related memories on search result
 extraction on save) without any change to their tool contract — no new tool was added for this.
 Phase 3 additionally introduced two small, additive tools (`setActiveSpace`, `create_document`) that
 back the MCP Apps widgets below, plus four `*_ui` tools whose only job is to open a widget (see
-"MCP Apps widgets"):
+"MCP Apps widgets"). "Access required" is the **effective** level — the space grant already capped by
+the caller's role — so every `ReadWrite` row below is refused to a `Reader`:
 
 | Tool | File | Access required | Description |
 | --- | --- | --- | --- |
@@ -186,8 +220,8 @@ back the MCP Apps widgets below, plus four `*_ui` tools whose only job is to ope
 | `getDocument` | `DocumentTools.cs` | Read | Metadata and content of a document |
 | `create_document` | `DocumentTools.cs` | ReadWrite | Stores content as a new document (text/Markdown/CSV/PDF in this version — PDF content is base64 bytes, extracted to text server-side) — source-of-truth storage only, does not run fact extraction |
 | `listMemories` | `MemoryTools.cs` | Read | Paginated list of extracted memories |
-| `listSpaces` | `AccessTools.cs` | — | Spaces accessible with the current API Key, with counts |
-| `whoAmI` | `AccessTools.cs` | — | Current identity, accessible spaces, active space |
+| `listSpaces` | `AccessTools.cs` | — | Spaces accessible with the current API Key, with the effective access level and counts |
+| `whoAmI` | `AccessTools.cs` | — | Authenticated user (id, email, display name, `Writer`/`Reader` role), the key in use, accessible spaces, active space |
 | `setActiveSpace` | `AccessTools.cs` | — | Sets which of the current API key's accessible spaces is active (default) |
 
 ## Available MCP resources and prompts
@@ -297,7 +331,25 @@ See [docs/pgvector-halfvec-search.md](docs/pgvector-halfvec-search.md) for the f
       (previously a silent source of meaningless similarity scores) unrepresentable
 - [x] Npgsql provider configuration centralized so `UseVector()` can't be omitted by a second call site
 
-### Phase 5 — Not implemented (evolution)
+### Phase 5 — Multi-user spaces — Completed
+
+See [docs/multi-user-spaces.md](docs/multi-user-spaces.md) for the full design.
+
+- [x] `User` + `UserRole` (`Writer`/`Reader`) domain model; `ApiKey` becomes a credential *of* a user
+      (`ApiKey.OwnerEmail` dropped — the owner's identity lives on `users.email`)
+- [x] Role used as a ceiling over the per-space grant, capped once where the access snapshot is built,
+      so no service, tool, or widget has to combine the two itself
+- [x] Deactivating a user invalidates every key they hold, in the authentication query
+- [x] `CreatedByUserId`/`UpdatedByUserId` on memories and documents, exposed as ids and resolved display
+      names on every search/list/detail result, with the "who forgot whose memory" case kept distinct
+      from authorship
+- [x] Per-space isolation pinned end-to-end (an ungranted space is unreachable by semantic search,
+      keyword search, and by naming its key), and reads left unfiltered by author *within* a space
+- [x] `--seed` provisions two users and two spaces; `guided-save`/`upload-file` offer only writable
+      spaces and `select-space` shows the effective level
+- [x] Test suite extended (domain, application, integration, end-to-end)
+
+### Phase 6 — Not implemented (evolution)
 - [ ] Review project for introducing a real graphDB (Neo4j)
 - [ ] Full-precision re-ranking of HNSW candidates, if measured recall proves insufficient
 - [ ] pgvector iterative index scans (0.8.0+) for highly selective filtered searches
@@ -407,15 +459,21 @@ OpenAI-compatible endpoint (e.g. a self-hosted Ollama/vLLM/LM Studio model) via 
 Leaving `Extraction:ApiKey` empty is fully supported: `add_memory` falls back to saving the whole
 content as a single memory with no graph edges, exactly like before graph memory existed.
 
-### 5. Create a test space and API Key
+### 5. Create test spaces, users, and API Keys
 
-There isn't an administration API yet (out of scope for Phase 1): a command-line command creates a
-"default" space and an API Key with `ReadWrite` access, printing the plaintext key once:
+There isn't an administration API yet: a command-line command creates two spaces and two users — a
+`Writer` with grants on both spaces and a `Reader` with a grant on one — printing both plaintext keys
+once:
 
 ```bash
 dotnet run --project src/MemoryMcp.Api -- --seed
-# Seeded space 'default' with API key: mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+# Seeded spaces 'default' and 'team'.
+#   Writer (writer@memory-mcp.local) — spaces default, team — API key: mmcp_xxxxxxxx…
+#   Reader (reader@memory-mcp.local) — space team (read-only by role) — API key: mmcp_yyyyyyyy…
 ```
+
+The Reader's grant is deliberately seeded as `ReadWrite`: the role is what makes them read-only, so
+this is the state worth exercising by hand. Use the Writer's key for normal local development.
 
 ### 6. Start the server
 

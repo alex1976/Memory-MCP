@@ -25,6 +25,9 @@
   .space-key { color: var(--muted); font-size: 11px; }
   .space-meta { color: var(--muted); font-size: 10px; text-align: right; }
   .badge { font-size: 10px; padding: 2px 6px; border-radius: 10px; background: var(--success); color: #06281f; font-weight: 600; }
+  /* The effective level — the space grant already capped by the caller's role — so a Reader can see
+     at a glance which spaces they can only read. */
+  .badge.level { background: var(--surface2); color: var(--muted); }
   .status-bar { font-size: 10px; color: var(--muted); }
   .status-bar.error { color: var(--danger); }
   .status-bar.success { color: var(--success); }
@@ -81,6 +84,7 @@
           </div>
           <div class="space-meta">
             ${s.isDefault ? '<span class="badge">Active</span>' : ''}
+            <span class="badge level">${s.accessLevel === 'ReadWrite' ? 'Read/Write' : 'Read only'}</span>
             <div>${s.documentCount} docs · ${s.memoryCount} memories</div>
           </div>`;
         card.addEventListener('click', () => selectSpace(s.key));

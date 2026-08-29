@@ -16,6 +16,11 @@ public sealed class ApiKeyConfiguration : IEntityTypeConfiguration<ApiKey>
 
         builder.Property(k => k.KeyPrefix).HasMaxLength(12).IsRequired();
         builder.Property(k => k.Label).HasMaxLength(200);
-        builder.Property(k => k.OwnerEmail).HasMaxLength(320);
+
+        // Cascade: deleting a user takes their credentials with them, so a hard delete can't leave keys
+        // that authenticate to a principal that no longer exists. Deactivating the user (the reversible
+        // path) is what offboarding should normally use.
+        builder.HasIndex(k => k.UserId);
+        builder.HasOne<User>().WithMany().HasForeignKey(k => k.UserId).OnDelete(DeleteBehavior.Cascade);
     }
 }

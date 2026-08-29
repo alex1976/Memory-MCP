@@ -376,8 +376,8 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
     <div class="grid3" style="margin-top:40px;">
       <div class="card">
         <div class="icon">◆</div>
-        <h3>Multi-tenant per space</h3>
-        <p>Every API Key has a Read/ReadWrite permission per space and one default "active" space. Isolation guaranteed at the query level.</p>
+        <h3>Multi-user, multi-tenant per space</h3>
+        <p>Every API Key belongs to one user — a <strong>Writer</strong> or a <strong>Reader</strong> — and carries a Read/ReadWrite permission per space plus one default "active" space. The role caps the grant, so a Reader is read-only everywhere. Isolation between spaces is guaranteed at the query level; inside a space everyone reads everything, and every write records its author.</p>
       </div>
       <div class="card">
         <div class="icon">◇</div>
@@ -427,11 +427,11 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       </div>
       <div class="tool-card">
         <div class="head"><span class="tool-name">listSpaces</span><span class="access none">—</span></div>
-        <p>Spaces accessible with the current API Key, with access level and counts.</p>
+        <p>Spaces accessible with the current API Key, with the effective access level (grant capped by the user's role) and counts.</p>
       </div>
       <div class="tool-card">
         <div class="head"><span class="tool-name">whoAmI</span><span class="access none">—</span></div>
-        <p>Current identity, accessible spaces, active space.</p>
+        <p>Authenticated user (id, email, display name, Writer/Reader role), the key in use, accessible spaces, active space.</p>
       </div>
       <div class="tool-card">
         <div class="head"><span class="tool-name">setActiveSpace</span><span class="access none">—</span></div>
@@ -584,10 +584,22 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
           <li><span class="mark">✓</span><span class="text">Embedding width made schema-bound and validated at startup, making mixed-width embeddings unrepresentable</span></li>
         </ul>
       </div>
+      <div class="phase-card done">
+        <span class="phase-badge done">Phase 5 — Completed</span>
+        <h3>Multi-user spaces</h3>
+        <ul class="checklist done">
+          <li><span class="mark">✓</span><span class="text"><code>User</code> with a <strong>Writer</strong>/<strong>Reader</strong> role; an API Key becomes a credential <em>of</em> a user, who may hold several</span></li>
+          <li><span class="mark">✓</span><span class="text">The role caps the per-space grant, applied once where the access snapshot is built — so services, tools and widgets all read one effective level</span></li>
+          <li><span class="mark">✓</span><span class="text">Deactivating a user invalidates every key they hold, in the authentication query itself</span></li>
+          <li><span class="mark">✓</span><span class="text"><code>createdBy</code>/<code>updatedBy</code> on memories and documents, returned as ids and display names — including who forgot or superseded a colleague's memory</span></li>
+          <li><span class="mark">✓</span><span class="text">Per-space isolation pinned end-to-end; reads inside a space left unfiltered by author</span></li>
+        </ul>
+      </div>
       <div class="phase-card next">
-        <span class="phase-badge next">Phase 5 — Not implemented</span>
+        <span class="phase-badge next">Phase 6 — Not implemented</span>
         <h3>Evolution</h3>
         <ul class="checklist next">
+          <li><span class="mark">○</span><span class="text">Admin API/CLI for provisioning: create space, invite user, mint/revoke key, change role</span></li>
           <li><span class="mark">○</span><span class="text">Review project for introducing a real graph DB (Neo4j)</span></li>
           <li><span class="mark">○</span><span class="text">Full-precision re-ranking of HNSW candidates, if measured recall proves insufficient</span></li>
           <li><span class="mark">○</span><span class="text">Word text extraction and image OCR/audio transcription for <code>upload-file</code></span></li>
@@ -635,8 +647,8 @@ X-Api-Key: mmcp_xxxxxxxxxxxxxxxxxxxxx
       <div class="step">
         <div class="num">5</div>
         <div>
-          <h4>Create a test space and API Key</h4>
-          <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api -- --seed</span><span class="l"><span class="comment"># Seeded space 'default' with API key: mmcp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span></span></div>
+          <h4>Create test spaces, users, and API Keys</h4>
+          <div class="code-block"><span class="l"><span class="prompt">$</span> dotnet run --project src/MemoryMcp.Api -- --seed</span><span class="l"><span class="comment"># Seeded spaces 'default' and 'team'.</span></span><span class="l"><span class="comment">#   Writer (writer@memory-mcp.local) — spaces default, team — API key: mmcp_xxxxxxxx…</span></span><span class="l"><span class="comment">#   Reader (reader@memory-mcp.local) — space team (read-only by role) — API key: mmcp_yyyyyyyy…</span></span></div>
         </div>
       </div>
       <div class="step">

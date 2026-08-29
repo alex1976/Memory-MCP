@@ -59,5 +59,11 @@ public sealed class MemoryConfiguration : IEntityTypeConfiguration<Domain.Memory
 
         builder.HasOne<Space>().WithMany().HasForeignKey(m => m.SpaceId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne<Document>().WithMany().HasForeignKey(m => m.DocumentId).OnDelete(DeleteBehavior.SetNull);
+
+        // SetNull, emphatically not Cascade: deleting a user must never delete the knowledge they
+        // contributed to a shared space. Losing the author's name is acceptable; losing the team's
+        // memories because someone left is not.
+        builder.HasOne<User>().WithMany().HasForeignKey(m => m.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne<User>().WithMany().HasForeignKey(m => m.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
     }
 }

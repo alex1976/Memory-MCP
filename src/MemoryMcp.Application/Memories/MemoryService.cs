@@ -10,6 +10,7 @@ public sealed class MemoryService(
     IMemoryEdgeRepository memoryEdgeRepository,
     IFactExtractor factExtractor,
     IMemoryGraphService memoryGraphService,
+    IUserRepository userRepository,
     IUnitOfWork unitOfWork,
     ICurrentAccessContext accessContext) : IMemoryService
 {
@@ -29,29 +30,43 @@ public sealed class MemoryService(
         string? containerTag,
         CancellationToken cancellationToken = default)
     {
+        // A search is always confined to exactly one space, whichever the tag resolves to: there is no
+        // cross-space read path, so a caller holding grants on several spaces still has to name the one
+        // they mean. Within that space nothing is filtered by author — every member reads the whole
+        // space's knowledge, and authorship is reported rather than used to restrict.
         var grant = RequireAccess(containerTag, AccessLevel.Read);
 
-        List<MemorySearchResultDto> matches;
+        List<(Memory Memory, double Score)> hits;
         if (!string.IsNullOrWhiteSpace(query))
         {
             var embedding = await embeddingProvider.EmbedAsync(query, cancellationToken);
-            var hits = await memoryRepository.SearchAsync(grant.SpaceId, embedding, SearchTopK, category, cancellationToken);
-            matches = hits.Select(h => new MemorySearchResultDto(h.Memory.Id, h.Memory.Text, h.Score, h.Memory.DocumentId, h.Memory.Category)).ToList();
+            var semanticHits = await memoryRepository.SearchAsync(grant.SpaceId, embedding, SearchTopK, category, cancellationToken);
+            hits = semanticHits.Select(h => (h.Memory, h.Score)).ToList();
         }
         else if (!string.IsNullOrWhiteSpace(keyword))
         {
-            var hits = await memoryRepository.SearchByKeywordAsync(grant.SpaceId, keyword, SearchTopK, category, cancellationToken);
-            matches = hits.Select(m => new MemorySearchResultDto(m.Id, m.Text, Score: 1.0, m.DocumentId, m.Category)).ToList();
+            var keywordHits = await memoryRepository.SearchByKeywordAsync(grant.SpaceId, keyword, SearchTopK, category, cancellationToken);
+            hits = keywordHits.Select(m => (m, 1.0)).ToList();
         }
         else if (!string.IsNullOrWhiteSpace(category))
         {
-            var hits = await memoryRepository.ListByCategoryAsync(grant.SpaceId, category, SearchTopK, cancellationToken);
-            matches = hits.Select(m => new MemorySearchResultDto(m.Id, m.Text, Score: 1.0, m.DocumentId, m.Category)).ToList();
+            var categoryHits = await memoryRepository.ListByCategoryAsync(grant.SpaceId, category, SearchTopK, cancellationToken);
+            hits = categoryHits.Select(m => (m, 1.0)).ToList();
         }
         else
         {
             throw new ValidationException("Provide at least one of query, keyword, or category.");
         }
+
+        var attribution = await UserAttribution.LoadAsync(
+            userRepository, hits.Select(h => h.Memory.CreatedByUserId), cancellationToken);
+
+        var matches = hits
+            .Select(h => new MemorySearchResultDto(
+                h.Memory.Id, h.Memory.Text, h.Score, h.Memory.DocumentId, h.Memory.Category,
+                CreatedByUserId: h.Memory.CreatedByUserId,
+                CreatedBy: attribution.DisplayName(h.Memory.CreatedByUserId)))
+            .ToList();
 
         for (var i = 0; i < matches.Count && i < RelatedMemoriesTopMatches; i++)
         {
@@ -74,7 +89,7 @@ public sealed class MemoryService(
     private async Task<IReadOnlyList<MemorySummaryDto>> GetProfileAsync(SpaceGrant grant, CancellationToken cancellationToken)
     {
         var recent = await memoryRepository.ListRecentActiveAsync(grant.SpaceId, ProfileTake, cancellationToken);
-        return recent.Select(ToSummary).ToList();
+        return await ToSummariesAsync(recent, cancellationToken);
     }
 
     public async Task<AddMemoryResult> AddMemoryAsync(
@@ -87,12 +102,15 @@ public sealed class MemoryService(
             throw new ValidationException("Content must not be empty.");
         }
 
+        // ReadWrite here is the *effective* level: a Reader's grant was capped to Read when the access
+        // snapshot was built, so a read-only member is refused regardless of what their grant row says.
         var grant = RequireAccess(containerTag, AccessLevel.ReadWrite);
+        var userId = accessContext.User.Id;
 
         return action switch
         {
-            MemoryAction.Save => await SaveAsync(grant.SpaceId, content, category, cancellationToken),
-            MemoryAction.Forget => await ForgetAsync(grant.SpaceId, content, cancellationToken),
+            MemoryAction.Save => await SaveAsync(grant.SpaceId, userId, content, category, cancellationToken),
+            MemoryAction.Forget => await ForgetAsync(grant.SpaceId, userId, content, cancellationToken),
             _ => throw new ValidationException($"Unsupported memory action '{action}'. Use 'save' or 'forget'."),
         };
     }
@@ -105,15 +123,16 @@ public sealed class MemoryService(
         var (clampedPage, clampedLimit) = Paging.Clamp(page, limit);
         var (items, totalCount) = await memoryRepository.ListAsync(grant.SpaceId, clampedPage, clampedLimit, cancellationToken);
 
-        var dtos = items.Select(ToSummary).ToList();
+        var dtos = await ToSummariesAsync(items, cancellationToken);
         return new PagedResult<MemorySummaryDto>(dtos, clampedPage, clampedLimit, totalCount);
     }
 
-    private async Task<AddMemoryResult> SaveAsync(Guid spaceId, string content, string? category, CancellationToken cancellationToken)
+    private async Task<AddMemoryResult> SaveAsync(
+        Guid spaceId, Guid userId, string content, string? category, CancellationToken cancellationToken)
     {
         var title = content.Length > 80 ? content[..80] + "…" : content;
-        var document = new Document(spaceId, title, docType: "note", rawContent: content);
-        document.MarkProcessed(summary: null);
+        var document = new Document(spaceId, title, docType: "note", rawContent: content, createdByUserId: userId);
+        document.MarkProcessed(summary: null, byUserId: userId);
         documentRepository.Add(document);
 
         var contentEmbedding = await embeddingProvider.EmbedAsync(content, cancellationToken);
@@ -141,7 +160,7 @@ public sealed class MemoryService(
         {
             // Extraction unconfigured/failed (or returned nothing usable): fall back to saving the whole
             // content as a single memory, exactly as before graph memory existed. Zero edges created.
-            var memory = new Memory(spaceId, content, contentEmbedding, document.Id, category);
+            var memory = new Memory(spaceId, content, contentEmbedding, document.Id, category, createdByUserId: userId);
             memoryRepository.Add(memory);
 
             await unitOfWork.SaveChangesAsync(cancellationToken);
@@ -156,7 +175,8 @@ public sealed class MemoryService(
         for (var i = 0; i < facts.Count; i++)
         {
             var fact = facts[i];
-            var factMemory = new Memory(spaceId, fact.Text, factEmbeddings[i], document.Id, fact.Category ?? category);
+            var factMemory = new Memory(
+                spaceId, fact.Text, factEmbeddings[i], document.Id, fact.Category ?? category, createdByUserId: userId);
             memoryRepository.Add(factMemory);
             memoryIds.Add(factMemory.Id);
 
@@ -177,7 +197,9 @@ public sealed class MemoryService(
                 // relation to a loosely-related candidate can't silently erase it.
                 if (relation.RelationType == RelationType.Updates && existingHit.Score >= ForgetSimilarityThreshold)
                 {
-                    existingHit.Memory.Forget(supersededBy: factMemory.Id);
+                    // The superseded memory may well be a colleague's, so stamp the member who caused the
+                    // deactivation onto it — otherwise a shared space loses all record of who erased what.
+                    existingHit.Memory.Forget(byUserId: userId, supersededBy: factMemory.Id);
                     forgottenCount++;
                 }
             }
@@ -215,7 +237,8 @@ public sealed class MemoryService(
         return facts.Select(f => f.Text == content ? contentEmbedding : embedded[nextEmbedding++]).ToList();
     }
 
-    private async Task<AddMemoryResult> ForgetAsync(Guid spaceId, string content, CancellationToken cancellationToken)
+    private async Task<AddMemoryResult> ForgetAsync(
+        Guid spaceId, Guid userId, string content, CancellationToken cancellationToken)
     {
         var embedding = await embeddingProvider.EmbedAsync(content, cancellationToken);
         var candidates = await memoryRepository.SearchAsync(spaceId, embedding, ForgetCandidateTopK, category: null, cancellationToken);
@@ -223,7 +246,7 @@ public sealed class MemoryService(
         var toForget = candidates.Where(c => c.Score >= ForgetSimilarityThreshold).ToList();
         foreach (var candidate in toForget)
         {
-            candidate.Memory.Forget();
+            candidate.Memory.Forget(byUserId: userId);
         }
 
         if (toForget.Count > 0)
@@ -247,6 +270,21 @@ public sealed class MemoryService(
     private SpaceGrant RequireAccess(string? containerTag, AccessLevel required) =>
         accessContext.RequireSpace(containerTag, required);
 
-    private static MemorySummaryDto ToSummary(Memory memory) =>
-        new(memory.Id, memory.Text, memory.Version, memory.DocumentId, memory.IsActive, memory.CreatedAt, memory.Category);
+    private async Task<List<MemorySummaryDto>> ToSummariesAsync(
+        IReadOnlyList<Memory> memories, CancellationToken cancellationToken)
+    {
+        var attribution = await UserAttribution.LoadAsync(
+            userRepository,
+            memories.SelectMany(m => new[] { m.CreatedByUserId, m.UpdatedByUserId }),
+            cancellationToken);
+
+        return memories.Select(m => ToSummary(m, attribution)).ToList();
+    }
+
+    private static MemorySummaryDto ToSummary(Memory memory, UserAttribution attribution) =>
+        new(memory.Id, memory.Text, memory.Version, memory.DocumentId, memory.IsActive, memory.CreatedAt, memory.Category,
+            CreatedByUserId: memory.CreatedByUserId,
+            CreatedBy: attribution.DisplayName(memory.CreatedByUserId),
+            UpdatedByUserId: memory.UpdatedByUserId,
+            UpdatedBy: attribution.DisplayName(memory.UpdatedByUserId));
 }

@@ -13,7 +13,16 @@ public sealed class SpaceService(
     public async Task<WhoAmIResult> WhoAmIAsync(CancellationToken cancellationToken = default)
     {
         var spaces = await ListSpacesAsync(cancellationToken);
-        return new WhoAmIResult(accessContext.ApiKeyId, accessContext.OwnerLabel, accessContext.ActiveGrant?.SpaceKey, spaces);
+        var user = accessContext.User;
+        return new WhoAmIResult(
+            accessContext.ApiKeyId,
+            accessContext.OwnerLabel,
+            user.Id,
+            user.Email,
+            user.DisplayName,
+            user.Role.ToString(),
+            accessContext.ActiveGrant?.SpaceKey,
+            spaces);
     }
 
     public async Task<IReadOnlyList<SpaceSummaryDto>> SetActiveSpaceAsync(string spaceKey, CancellationToken cancellationToken = default)

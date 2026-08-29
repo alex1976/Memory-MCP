@@ -54,7 +54,10 @@
   <script>
     const contentEl = document.getElementById('content');
     const saveBtn = document.getElementById('saveBtn');
-    contentEl.addEventListener('input', () => { saveBtn.disabled = contentEl.value.trim() === ''; });
+    // Set to false when the caller turns out to hold no writable space (a Reader): typing must not
+    // re-enable the button in that case, so every enable path goes through this flag.
+    let hasWritableSpace = true;
+    contentEl.addEventListener('input', () => { saveBtn.disabled = !hasWritableSpace || contentEl.value.trim() === ''; });
 
     let nextRequestId = 1;
     const pendingRequests = new Map();
@@ -107,7 +110,7 @@
       } catch (e) {
         setStatus('Error: ' + e.message, 'error');
       } finally {
-        saveBtn.disabled = contentEl.value.trim() === '';
+        saveBtn.disabled = !hasWritableSpace || contentEl.value.trim() === '';
       }
     }
 
@@ -126,14 +129,26 @@
         const res = await sendRequest('resources/read', { uri: 'memory-mcp://spaces' });
         const text = res?.contents?.[0]?.text;
         const spaces = text ? JSON.parse(text) : [];
+        // Only writable spaces are offered: accessLevel is the effective level (a Reader's grant is
+        // already capped to Read), so listing the rest would let someone pick a space and only find
+        // out it was refused after writing a draft.
+        const writable = spaces.filter((s) => s.accessLevel === 'ReadWrite');
         const select = document.getElementById('spaceSelect');
-        spaces.forEach((s) => {
+        writable.forEach((s) => {
           const opt = document.createElement('option');
           opt.value = s.key;
           opt.textContent = `${s.name} (${s.key})${s.isDefault ? ' — active' : ''}`;
           select.appendChild(opt);
         });
-        setStatus(`Ready — ${spaces.length} space(s) available.`);
+
+        if (writable.length === 0) {
+          hasWritableSpace = false;
+          saveBtn.disabled = true;
+          setStatus('You have read-only access to every space, so there is nowhere to save.', 'error');
+          return;
+        }
+
+        setStatus(`Ready — ${writable.length} writable space(s) available.`);
       } catch (e) {
         setStatus('Standalone mode: ' + e.message, 'error');
       }

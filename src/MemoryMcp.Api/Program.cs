@@ -108,26 +108,49 @@ static async Task RunMigrateAsync(string[] args)
     await db.Database.MigrateAsync();
 }
 
-// Dev-only helper: creates a Space + ReadWrite API key so the MCP tools can be exercised
-// manually (e.g. via MCP Inspector) without a full admin API, which is out of scope for Phase 1.
+// Dev-only helper: creates two spaces and two users — a Writer holding grants on both spaces and a
+// Reader holding a grant on one — so the multi-user rules (role ceiling, per-space grants, shared
+// reads, attribution) can be exercised manually via MCP Inspector without a full admin API, which
+// remains out of scope (TODO T9).
 static async Task SeedDevDataAsync(IServiceProvider services)
 {
     using var scope = services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<MemoryDbContext>();
     await db.Database.MigrateAsync();
 
-    var space = new Space("default", "Default Space", "Seeded for local development");
+    var personalSpace = new Space("default", "Default Space", "Seeded for local development");
+    var teamSpace = new Space("team", "Team Space", "Shared space, seeded for local development");
+    db.Spaces.AddRange(personalSpace, teamSpace);
 
-    var rawKey = $"mmcp_{Guid.NewGuid():N}";
-    var apiKey = new ApiKey(ApiKeyHasher.Hash(rawKey), rawKey[..12], label: "dev-seed");
-    var grant = new ApiKeySpaceGrant(apiKey.Id, space.Id, AccessLevel.ReadWrite, isDefault: true);
+    var writer = new User("writer@memory-mcp.local", "Dev Writer", UserRole.Writer);
+    var reader = new User("reader@memory-mcp.local", "Dev Reader", UserRole.Reader);
+    db.Users.AddRange(writer, reader);
 
-    db.Spaces.Add(space);
-    db.ApiKeys.Add(apiKey);
-    db.ApiKeySpaceGrants.Add(grant);
+    // The Reader's grant is deliberately ReadWrite: the role ceiling is what makes them read-only, so
+    // seeding it this way exercises the capping instead of hiding it behind a matching grant level.
+    var writerKey = AddKey(db, writer, "dev-writer", (personalSpace, AccessLevel.ReadWrite, true), (teamSpace, AccessLevel.ReadWrite, false));
+    var readerKey = AddKey(db, reader, "dev-reader", (teamSpace, AccessLevel.ReadWrite, true));
+
     await db.SaveChangesAsync();
 
-    Console.WriteLine($"Seeded space '{space.Key}' with API key: {rawKey}");
+    Console.WriteLine($"Seeded spaces '{personalSpace.Key}' and '{teamSpace.Key}'.");
+    Console.WriteLine($"  Writer ({writer.Email}) — spaces {personalSpace.Key}, {teamSpace.Key} — API key: {writerKey}");
+    Console.WriteLine($"  Reader ({reader.Email}) — space {teamSpace.Key} (read-only by role) — API key: {readerKey}");
+
+    static string AddKey(
+        MemoryDbContext db, User user, string label, params (Space Space, AccessLevel Level, bool IsDefault)[] grants)
+    {
+        var rawKey = $"mmcp_{Guid.NewGuid():N}";
+        var apiKey = new ApiKey(user.Id, ApiKeyHasher.Hash(rawKey), rawKey[..12], label);
+        db.ApiKeys.Add(apiKey);
+
+        foreach (var (space, level, isDefault) in grants)
+        {
+            db.ApiKeySpaceGrants.Add(new ApiKeySpaceGrant(apiKey.Id, space.Id, level, isDefault));
+        }
+
+        return rawKey;
+    }
 }
 
 // Stdio transport: runs as a local subprocess (e.g. launched by Claude Desktop's "command" config)

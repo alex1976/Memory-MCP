@@ -17,5 +17,10 @@ public sealed class DocumentConfiguration : IEntityTypeConfiguration<Document>
 
         builder.HasIndex(d => d.SpaceId);
         builder.HasOne<Space>().WithMany().HasForeignKey(d => d.SpaceId).OnDelete(DeleteBehavior.Cascade);
+
+        // SetNull for the same reason as on memories: a departed author must not take the space's
+        // source documents with them.
+        builder.HasOne<User>().WithMany().HasForeignKey(d => d.CreatedByUserId).OnDelete(DeleteBehavior.SetNull);
+        builder.HasOne<User>().WithMany().HasForeignKey(d => d.UpdatedByUserId).OnDelete(DeleteBehavior.SetNull);
     }
 }

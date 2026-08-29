@@ -9,6 +9,13 @@ public sealed class Document
     public DocumentStatus Status { get; private set; }
     public string? Summary { get; private set; }
     public string? RawContent { get; private set; }
+
+    /// <summary>Who uploaded or saved the source. Nullable only for rows written before users existed.</summary>
+    public Guid? CreatedByUserId { get; private set; }
+
+    /// <summary>Whoever last changed the row — processing status, summary.</summary>
+    public Guid? UpdatedByUserId { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
     public DateTimeOffset UpdatedAt { get; private set; }
 
@@ -16,7 +23,13 @@ public sealed class Document
     {
     }
 
-    public Document(Guid spaceId, string title, string docType, string? rawContent = null, string? summary = null)
+    public Document(
+        Guid spaceId,
+        string title,
+        string docType,
+        string? rawContent = null,
+        string? summary = null,
+        Guid? createdByUserId = null)
     {
         Id = Guid.NewGuid();
         SpaceId = spaceId;
@@ -25,21 +38,29 @@ public sealed class Document
         RawContent = rawContent;
         Summary = summary;
         Status = DocumentStatus.Pending;
+        CreatedByUserId = createdByUserId;
+        UpdatedByUserId = createdByUserId;
         var now = DateTimeOffset.UtcNow;
         CreatedAt = now;
         UpdatedAt = now;
     }
 
-    public void MarkProcessed(string? summary)
+    public void MarkProcessed(string? summary, Guid? byUserId = null)
     {
         Status = DocumentStatus.Processed;
         Summary = summary;
-        UpdatedAt = DateTimeOffset.UtcNow;
+        Touch(byUserId);
     }
 
-    public void MarkFailed()
+    public void MarkFailed(Guid? byUserId = null)
     {
         Status = DocumentStatus.Failed;
+        Touch(byUserId);
+    }
+
+    private void Touch(Guid? byUserId)
+    {
+        UpdatedByUserId = byUserId ?? UpdatedByUserId;
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 }
