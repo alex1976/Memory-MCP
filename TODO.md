@@ -94,8 +94,8 @@ space.
 as credentials of a user, and `CreatedBy`/`UpdatedBy` on memories and documents
 ([docs/multi-user-spaces.md](docs/multi-user-spaces.md)). Several people can share a space safely enough
 to be attributed; what is still missing is the *policy* around cross-author writes (T2), defence in
-depth (T8), and any way to onboard someone without an INSERT (T9). Item notes below are marked
-individually.
+depth (T8), and — narrowed on 2026-08-30, when onboarding became a CLI — any way to *change* an
+existing user, key or grant without an UPDATE (T9). Item notes below are marked individually.
 
 **Prerequisite decision — one key per person, not one key per team.** Everything below assumes it. A
 shared team key makes attribution (T1) impossible and turns revocation into "rotate the key for
@@ -253,7 +253,8 @@ test, not defence in depth — this item is still open and still the most severe
 
 ## T9. Provisioning does not exist
 
-**Where:** `src/MemoryMcp.Api/Program.cs` (`SeedDevDataAsync`)
+**Where:** `src/MemoryMcp.Api/Program.cs` (`SeedDevDataAsync`),
+`src/MemoryMcp.Api/ProvisioningCommands.cs`
 
 Spaces, users, keys and grants are only ever created by the `--seed` dev path, writing rows directly
 (it now seeds two users and two spaces, but it is still a dev fixture, not provisioning). A team cannot
@@ -263,6 +264,26 @@ user deactivation must evict the cache entry.
 
 With identity now in place (T3) this is the binding constraint on actually using multi-user spaces:
 everything the runtime needs exists, but the only way to add a person is a hand-written INSERT.
+
+**Update (2026-08-30): the onboarding half exists as a CLI.** `--create-user` and `--create-api-key`
+(`ProvisioningCommands`, wrapped by [scripts/create-user.ps1](scripts/create-user.ps1) and
+[scripts/create-api-key.ps1](scripts/create-api-key.ps1)) create a person and mint a credential with
+per-space grants, so adding someone is no longer an INSERT and the key hash is no longer computed
+outside the code that verifies it. Two verbs rather than one, because a person outlives any single
+credential they hold.
+
+**Update (2026-08-31): creating a space landed too.** `--create-space`
+([scripts/create-space.ps1](scripts/create-space.ps1)) creates a space and grants existing keys on it,
+targeting a key by owner email (fanning out to every credential that person holds), key id, or printed
+prefix; `-AllowExisting` opens an already-existing space to one more credential, which is a grant
+mutation rather than a creation and closes the gap that made `--create-api-key` the only way to hand
+out access. Grants are resolved before anything is saved, so a typo cannot leave a space created with
+half its grants applied.
+
+Still missing, and still T9: **revoke key**, **change role**, **change access level**, **deactivate
+user** — every one of them a mutation of something that already exists, which is the harder half
+(revocation is what item **1**'s cache would have to evict). And it is a CLI, so it only serves whoever
+can reach the database host; a team still cannot onboard itself.
 
 ## T10. Operational items that become blocking
 
@@ -284,8 +305,10 @@ Already listed under *Smaller observations* as nice-to-haves; with N members the
    (T3) landed together, since a `CreatedBy` with nothing to point at is not worth a migration; the
    provenance intended for step 3 came with them. What remains of this step: the cross-author supersede
    rule and `Version` as a concurrency token (T2), and the global query filter (T8).
-2. **Provisioning** — T9, now the binding constraint: the runtime supports several users, but the only
-   way to create one is an INSERT. T4 (finer access levels) is independent and can wait.
+2. **Provisioning** — T9. Onboarding landed as a CLI on 2026-08-30 (`--create-user`,
+   `--create-api-key`) and space creation with grants on 2026-08-31 (`--create-space`); what remains
+   binding is the mutations — revoke, change role, change access level, deactivate. T4 (finer access
+   levels) is independent and can wait.
 3. **Team-quality recall** — T6, T7. Provenance in results is done.
 4. **Operations** — T10. Structured logging of tool calls now has a user id to log
    (`ICurrentAccessContext.User`, and the `user_id`/name/role claims on the principal).

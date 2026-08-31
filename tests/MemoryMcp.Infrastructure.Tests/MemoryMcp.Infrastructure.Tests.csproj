@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="AwesomeAssertions" Version="9.5.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.10" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
@@ -17,6 +18,19 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!-- PostgresFixture reads the 'Test' connection string from the API's own configuration, so the app's
+       settings files are copied next to the test assembly instead of being duplicated here.
+       appsettings.Development.json is gitignored, hence the Exists condition. -->
+  <ItemGroup>
+    <Content Include="..\..\src\MemoryMcp.Api\appsettings.json"
+             Link="appsettings.json"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\MemoryMcp.Api\appsettings.Development.json"
+             Link="appsettings.Development.json"
+             CopyToOutputDirectory="PreserveNewest"
+             Condition="Exists('..\..\src\MemoryMcp.Api\appsettings.Development.json')" />
   </ItemGroup>
 
   <ItemGroup>

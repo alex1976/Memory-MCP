@@ -475,6 +475,49 @@ dotnet run --project src/MemoryMcp.Api -- --seed
 The Reader's grant is deliberately seeded as `ReadWrite`: the role is what makes them read-only, so
 this is the state worth exercising by hand. Use the Writer's key for normal local development.
 
+`--seed` is a fixture, not provisioning: it always creates the same two fictional people. To onboard a
+real one, use the three scripts below — deliberately separate, because a person outlives any single
+credential they hold (so minting a second key for a laptop, CI or agent must not mean creating a second
+account) and a space outlives the keys granted on it (so opening a space to one more credential must
+not mean rotating that credential).
+
+```powershell
+# 1. The person: email (unique, lower-cased), display name, and the role that caps them everywhere.
+#    All three are prompted for when omitted, so plain ./scripts/create-user.ps1 works too; Enter takes
+#    the email as display name and Writer as role.
+./scripts/create-user.ps1 -Email alice@example.com -Name "Alice Rossi" -Role Writer
+
+# 2. A credential for them, and what it can reach. Grants are '<space-key>[:Read|ReadWrite]'
+#    (ReadWrite by default); -DefaultSpace picks the one used when a request names none. -Label is
+#    prompted for when omitted (Enter for none) — it is what tells one person's keys apart later.
+./scripts/create-api-key.ps1 -Email alice@example.com -Space default, team:Read -Label laptop
+#   API key: mmcp_xxxxxxxx…    <- printed once; only the SHA-256 hash is stored
+#   Spaces:
+#     default: ReadWrite [default]
+#     team: Read
+
+# 3. A space, and the keys allowed into it. -GrantTo takes '<target>[:Read|ReadWrite]', where a target
+#    is an owner's email (every key that person holds), a key id, or the prefix printed at mint time.
+#    -Name is prompted for when omitted (Enter falls back to the key) — it is what teammates read in
+#    the space selector, and it can only be set at creation.
+./scripts/create-space.ps1 -Key engineering -Name "Engineering launch" -GrantTo alice@example.com
+#   Grants:
+#     Alice Rossi <alice@example.com> (mmcp_xxxxxxx…, laptop): ReadWrite [default]
+
+# Opening an existing space to one more credential — the space is reused, only the grant is added.
+./scripts/create-space.ps1 -Key engineering -AllowExisting -GrantTo bob@example.com:Read
+```
+
+All three wrap one-shot commands on the API project (`--create-user`, `--create-api-key`,
+`--create-space`), so they read the same connection string the server does. Step 2 requires the spaces
+to already exist — it lists the ones that do if a name doesn't match — so for a brand-new space either
+run step 3 first, or run step 3 afterwards to grant it. The printed access level is the *effective* one:
+a `Reader` handed a `ReadWrite` grant is shown as `Read`, capped by their role.
+
+Each key has at most one default space, the one used when a request names none. `create-space.ps1`
+assigns it when the key has no other grant, and `-MakeDefault` moves it to the new space; the previous
+default is cleared, since two defaults would make the fallback depend on row order.
+
 ### 6. Start the server
 
 ```bash
@@ -580,18 +623,27 @@ widgets will be available in the conversation (support for resources/prompts/wid
 # Unit tests (no external dependencies)
 dotnet test tests/MemoryMcp.Application.Tests/MemoryMcp.Application.Tests.csproj
 
-# Integration and end-to-end tests: require a reachable real Postgres
-export MEMORYMCP_TEST_CONNECTION_STRING="Host=localhost;Port=5432;Username=<user>;Password=<password>;Database=<database>"
+# Integration and end-to-end tests: require a reachable real Postgres.
+# Set the 'Test' connection string in src/MemoryMcp.Api/appsettings.Development.json first:
+#   "ConnectionStrings": {
+#     "Default": "...",
+#     "Test": "Host=localhost;Port=5432;Username=<user>;Password=<password>;Database=<database>"
+#   }
 dotnet test
 ```
 
-> The integration/E2E tests connect directly to the Postgres indicated by
-> `MEMORYMCP_TEST_CONNECTION_STRING` (no Testcontainers/Docker, for consistency with the company
+> The integration/E2E tests connect directly to the Postgres named by the `Test` connection string of
+> the API's own configuration (no Testcontainers/Docker, for consistency with the company
 > environment). That instance needs `pgvector` too, since the tests apply migrations automatically.
-> Both `PostgresFixture` and `McpApiFactory` honor the variable — the latter overrides the connection
-> string at the DI level, because a configuration-level override loses to
-> `appsettings.Development.json` — so point it at a **dedicated test database**, not your working one:
-> every test uses random-GUID keys/spaces, so nothing collides, but rows accumulate.
+> `appsettings.json` only carries a placeholder, so the real value belongs in the gitignored
+> `appsettings.Development.json`, whose entry overrides it. Point it at a **dedicated test database**,
+> not your working one: every test uses random-GUID keys/spaces, so nothing collides, but rows
+> accumulate.
+>
+> `McpApiFactory` reads it from the test host's configuration and overrides the connection string at
+> the DI level, because a configuration-level override loses to `appsettings.Development.json`'s
+> `Default`. `PostgresFixture` has no host, so `MemoryMcp.Infrastructure.Tests.csproj` copies the API's
+> two settings files next to the test assembly and the fixture reads them with a `ConfigurationBuilder`.
 
 ## Docker
 

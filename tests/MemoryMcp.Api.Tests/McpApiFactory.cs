@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol.Client;
@@ -14,8 +15,8 @@ using ModelContextProtocol.Client;
 namespace MemoryMcp.Api.Tests;
 
 /// <summary>
-/// Docker is unavailable in this environment (company policy), so this factory points the app at a
-/// real, directly-configured Postgres instance (the same one used for local dev) instead of a
+/// Docker is unavailable in this environment (company policy), so this factory points the app at the
+/// real Postgres named by the app's own <c>Test</c> connection string, instead of a
 /// Testcontainers-managed one. The seeded spaces use random keys so repeated runs against the
 /// shared database never collide on the unique space key constraint.
 /// </summary>
@@ -27,11 +28,6 @@ namespace MemoryMcp.Api.Tests;
 /// </remarks>
 public sealed class McpApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
-    private static string ConnectionString =>
-        Environment.GetEnvironmentVariable("MEMORYMCP_TEST_CONNECTION_STRING")
-        ?? throw new InvalidOperationException(
-            "Set the MEMORYMCP_TEST_CONNECTION_STRING environment variable to a reachable Postgres instance to run these tests.");
-
     public const string WriterDisplayName = "E2E Writer";
     public const string ReaderDisplayName = "E2E Reader";
 
@@ -101,19 +97,25 @@ public sealed class McpApiFactory : WebApplicationFactory<Program>, IAsyncLifeti
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.ConfigureServices(services =>
+        builder.ConfigureServices((context, services) =>
         {
+            // Read through the host's fully-built configuration, so the app's own appsettings files are
+            // the single source of the test database — and appsettings.Development.json's 'Test' value
+            // wins over the placeholder in the committed base file, as it does for 'Default'.
+            var connectionString = context.Configuration.GetConnectionString("Test")
+                ?? throw new InvalidOperationException(
+                    "Set the 'Test' connection string in src/MemoryMcp.Api/appsettings.Development.json to a reachable Postgres instance to run these tests.");
+
             // The connection string is overridden here, at the DI level, rather than through
             // ConfigureAppConfiguration: an in-memory configuration source added there is applied
-            // *before* the app's own appsettings.{Environment}.json, so the dev connection string won
-            // and every e2e run wrote into the developer's working database instead of the one named by
-            // MEMORYMCP_TEST_CONNECTION_STRING. Replacing the already-built registration is independent
-            // of configuration source ordering.
+            // *before* the app's own appsettings.{Environment}.json, so 'Default' would keep winning and
+            // every e2e run would write into the developer's working database instead of the test one.
+            // Replacing the already-built registration is independent of configuration source ordering.
             services.RemoveAll<IDbContextOptionsConfiguration<MemoryDbContext>>();
             services.RemoveAll<DbContextOptions<MemoryDbContext>>();
             services.RemoveAll<DbContextOptions>();
             services.RemoveAll<MemoryDbContext>();
-            services.AddDbContext<MemoryDbContext>(options => options.UseMemoryMcpNpgsql(ConnectionString));
+            services.AddDbContext<MemoryDbContext>(options => options.UseMemoryMcpNpgsql(connectionString));
 
             services.RemoveAll<IEmbeddingProvider>();
             services.AddScoped<IEmbeddingProvider, FakeEmbeddingProvider>();

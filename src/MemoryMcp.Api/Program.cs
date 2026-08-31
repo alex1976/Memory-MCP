@@ -23,7 +23,12 @@ if (args.Contains("--migrate"))
     return;
 }
 
-var builder = WebApplication.CreateBuilder(args);
+// Resolved before the builder because AddCommandLine (wired in by CreateBuilder) throws on a valueless
+// flag followed by another flag — the shape of `--create-user --email …`. Provisioning parses its own
+// arguments, so the builder is handed none.
+var provisioningVerb = ProvisioningCommands.FindVerb(args);
+
+var builder = WebApplication.CreateBuilder(provisioningVerb is null ? args : []);
 
 builder.Services.AddMemoryMcpApplication();
 builder.Services.AddMemoryMcpInfrastructure(builder.Configuration);
@@ -42,6 +47,12 @@ builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
 AddMemoryMcpServer(builder.Services, mcp => mcp.WithHttpTransport());
 
 var app = builder.Build();
+
+if (provisioningVerb is not null)
+{
+    Environment.ExitCode = await ProvisioningCommands.RunAsync(provisioningVerb, args, app.Services);
+    return;
+}
 
 if (args.Contains("--seed"))
 {
