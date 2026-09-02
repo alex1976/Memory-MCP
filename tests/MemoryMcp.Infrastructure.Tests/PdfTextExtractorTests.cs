@@ -1,6 +1,9 @@
 using AwesomeAssertions;
 using MemoryMcp.Application.Abstractions;
 using MemoryMcp.Infrastructure.Documents;
+using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.Fonts.Standard14Fonts;
+using UglyToad.PdfPig.Writer;
 
 namespace MemoryMcp.Infrastructure.Tests;
 
@@ -38,6 +41,29 @@ public sealed class PdfTextExtractorTests
         %%EOF
         """;
 
+    /// <summary>
+    /// Builds a two-column page whose lines are drawn row by row (left cell, right cell, next row...) —
+    /// what real producers emit for newspaper layouts and tables. In content-stream order this reads
+    /// "Alpha one Beta one Alpha two Beta two...", so it pins the reading-order reconstruction.
+    /// Generated with PdfPig's writer rather than hand-written bytes so the fixture is a valid PDF.
+    /// </summary>
+    private static byte[] BuildTwoColumnPdf()
+    {
+        var builder = new PdfDocumentBuilder();
+        var page = builder.AddPage(600, 400);
+        var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+
+        var rows = new[] { "one", "two", "three", "four" };
+        for (var i = 0; i < rows.Length; i++)
+        {
+            var y = 350 - (i * 20);
+            page.AddText($"Alpha {rows[i]}", 12, new PdfPoint(50, y), font);
+            page.AddText($"Beta {rows[i]}", 12, new PdfPoint(350, y), font);
+        }
+
+        return builder.Build();
+    }
+
     [Fact]
     public async Task ExtractTextAsync_returns_the_pdfs_text_content()
     {
@@ -47,6 +73,19 @@ public sealed class PdfTextExtractorTests
         var text = await extractor.ExtractTextAsync(bytes);
 
         text.Should().Contain("Hello World");
+    }
+
+    [Fact]
+    public async Task ExtractTextAsync_reads_columns_top_to_bottom_rather_than_in_content_stream_order()
+    {
+        var extractor = new PdfTextExtractor();
+
+        var text = await extractor.ExtractTextAsync(BuildTwoColumnPdf());
+
+        // The whole left column must be read out before the right one starts, so no glyph of the second
+        // column may appear before the last line of the first.
+        text.IndexOf("Alpha four", StringComparison.Ordinal)
+            .Should().BeGreaterThan(-1).And.BeLessThan(text.IndexOf("Beta one", StringComparison.Ordinal));
     }
 
     [Fact]

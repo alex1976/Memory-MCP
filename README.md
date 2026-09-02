@@ -185,7 +185,7 @@ configuration alone.
 | Vector search | `pgvector` ≥ 0.7.0 (`halfvec` + HNSW), via `Pgvector.EntityFrameworkCore` |
 | Embedding | `OpenAI` / `Azure.AI.OpenAI` (same `EmbeddingClient`, selected via configuration; also backs Gemini's OpenAI-compatible endpoint) |
 | Fact extraction | Same `OpenAI` SDK's `ChatClient`, JSON Schema structured output (OpenAI / Azure OpenAI / Gemini / self-hosted OpenAI-compatible) |
-| PDF text extraction | `PdfPig` (pure managed, no native dependencies or external service) |
+| PDF text extraction | `PdfPig` + its document layout analysis for reading order (pure managed, no native dependencies or external service) |
 | Authentication | Custom `AuthenticationHandler<T>` scheme based on API Key (SHA-256 hash) |
 | Tests | xUnit, NSubstitute, AwesomeAssertions (MIT fork of FluentAssertions), `Microsoft.AspNetCore.Mvc.Testing` |
 | Container | Multi-stage Dockerfile + docker-compose (for environments where Docker is available) |
@@ -243,6 +243,11 @@ methods — the profile one is the fetch logic already used by `search_memory`, 
 called on its own instead of only alongside a search; the graph one wraps
 `IMemoryGraphService.GetSpaceGraphAsync` behind the same `RequireAccess` check every other method uses.
 
+See [docs/resources-and-prompt-usage.md](docs/resources-and-prompt-usage.md) for how to read the
+resources at the protocol level, and [docs/mcp-prompt-usage.md](docs/mcp-prompt-usage.md) for the
+`context` prompt in detail — what it contains, how the space ranking works, and when to prefer it
+over `search_memory`.
+
 ## MCP Apps widgets
 
 See [docs/mcp-apps-widgets-usage.md](docs/mcp-apps-widgets-usage.md) for a protocol-level walkthrough
@@ -274,6 +279,13 @@ before storing it as the document's `RawContent`; the widget then fetches that e
 `getDocument` if "also extract memories" is checked, since the plain text only exists server-side for
 PDFs. A malformed/corrupt PDF surfaces as a normal tool error (`DocumentExtractionException`), not an
 unhandled exception.
+
+Extraction runs PdfPig's document layout analysis (letters → words → paragraph blocks → reading order)
+rather than the raw `Page.Text`, which concatenates glyphs in content-stream order and interleaves
+columns, tables and running headers. Since the extracted text is what gets embedded and fed to the fact
+extractor, reading order is a correctness concern rather than a cosmetic one. Layout analysis is
+heuristic, so a page it cannot segment falls back to `Page.Text` for that page alone. Scanned
+(image-only) PDFs have no text layer to recover and still extract as empty — OCR is not in scope.
 
 > **Note:** other formats the wider spec mentions (Word, images, MP3/WAV/M4A, MP4/WebM) can still be
 > picked in the file dialog but disable upload with an inline explanation — Word text extraction and

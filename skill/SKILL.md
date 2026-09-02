@@ -1,6 +1,6 @@
 ---
 name: memory-mcp
-description: 'Use this skill when the "Memory-MCP" MCP server is available (tools search_memory, add_memory, listMemories, listDocuments, getDocument, listSpaces, whoAmI, setActiveSpace, create_document, and the select_space_ui/guided_save_ui/upload_file_ui/memory_graph_ui widgets) and the user asks to remember, save, recall, search, or forget information across different conversations, upload a file, or manage memory spaces/categories.'
+description: 'Use this skill when the "Memory-MCP" MCP server is available (tools search_memory, add_memory, listMemories, listDocuments, getDocument, listSpaces, whoAmI, setActiveSpace, create_document, and the select_space_ui/guided_save_ui/upload_file_ui/memory_graph_ui widgets) and the user asks to save (es. "salva in memoria", "memorizza dati"), recall, search (es. "cerca in memoria", "cerca dati in memoria"), or forget (es. "dimentica memoria", "rimuovi memoria") information across different conversations, upload a file, or manage memory spaces/categories.'
 ---
 
 # Memory-MCP — usage guide for the agent
@@ -120,7 +120,7 @@ inconsistent state.
      it and the space is the right one for that kind of data.
 4. **When retrieving** (`search_memory`), pick the mode that best fits (see above) instead of always
    using semantic search: a `keyword` or a `category` are more precise and cheaper when the
-   term or grouping is already known.
+   term or grouping is already known. If not specified, ask user in which **space** retrieve information.
 5. **When a piece of information is outdated or wrong and you have no replacement fact to save**, use
    `add_memory` with `action: "forget"`, passing in `content` text that describes/recalls the memory to
    remove (matching is by similarity, not by ID) — don't let contradictory versions of the same
