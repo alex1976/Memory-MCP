@@ -1,7 +1,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-COPY global.json Directory.Build.props Memory-MCP.sln ./
+COPY global.json Directory.Build.props Memory-MCP.slnx ./
 COPY src/MemoryMcp.Domain/MemoryMcp.Domain.csproj src/MemoryMcp.Domain/
 COPY src/MemoryMcp.Application/MemoryMcp.Application.csproj src/MemoryMcp.Application/
 COPY src/MemoryMcp.Infrastructure/MemoryMcp.Infrastructure.csproj src/MemoryMcp.Infrastructure/
