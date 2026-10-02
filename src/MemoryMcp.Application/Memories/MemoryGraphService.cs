@@ -4,23 +4,29 @@ namespace MemoryMcp.Application.Memories;
 
 public sealed class MemoryGraphService(IMemoryEdgeRepository memoryEdgeRepository, IMemoryRepository memoryRepository) : IMemoryGraphService
 {
-    public async Task<IReadOnlyList<RelatedMemoryDto>> GetRelatedAsync(
-        Guid rootMemoryId, Guid spaceId, int maxHops = 2, CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlyList<RelatedMemoryDto>>> GetRelatedAsync(
+        IReadOnlyList<Guid> rootMemoryIds, Guid spaceId, int maxHops = 2, CancellationToken cancellationToken = default)
     {
-        var related = await memoryEdgeRepository.GetRelatedAsync(rootMemoryId, maxHops, cancellationToken);
+        var related = await memoryEdgeRepository.GetRelatedAsync(rootMemoryIds, maxHops, cancellationToken);
         if (related.Count == 0)
         {
-            return [];
+            return new Dictionary<Guid, IReadOnlyList<RelatedMemoryDto>>();
         }
 
-        var memories = await memoryRepository.GetByIdsAsync(spaceId, related.Select(r => r.MemoryId).ToList(), cancellationToken);
+        var relatedIds = related.Values.SelectMany(r => r).Select(r => r.MemoryId).Distinct().ToList();
+        var memories = await memoryRepository.GetByIdsAsync(spaceId, relatedIds, cancellationToken);
         var byId = memories.ToDictionary(m => m.Id);
 
         return related
-            .Where(r => byId.ContainsKey(r.MemoryId))
-            .Select(r => new RelatedMemoryDto(
-                r.MemoryId, byId[r.MemoryId].Text, r.RelationType, r.Hops, byId[r.MemoryId].IsActive, r.Direction, r.Note))
-            .ToList();
+            .Select(entry => (
+                entry.Key,
+                Related: (IReadOnlyList<RelatedMemoryDto>)entry.Value
+                    .Where(r => byId.ContainsKey(r.MemoryId))
+                    .Select(r => new RelatedMemoryDto(
+                        r.MemoryId, byId[r.MemoryId].Text, r.RelationType, r.Hops, byId[r.MemoryId].IsActive, r.Direction, r.Note))
+                    .ToList()))
+            .Where(x => x.Related.Count > 0)
+            .ToDictionary(x => x.Key, x => x.Related);
     }
 
     public async Task<SpaceGraphDto> GetSpaceGraphAsync(Guid spaceId, int maxNodes = 50, CancellationToken cancellationToken = default)

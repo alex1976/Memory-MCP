@@ -29,8 +29,23 @@ services:
     environment:
       ConnectionStrings__Default: "Host=db;Port=5432;Database=memory_mcp;Username=memory_mcp;Password=memory_mcp"
       ASPNETCORE_URLS: "http://+:8080"
+      Extraction__Provider: "${EXTRACTION_PROVIDER:-OpenAI}"
+      Extraction__ApiKey: "${EXTRACTION_API_KEY:-}"
+      Extraction__Model: "${EXTRACTION_MODEL:-gpt-4o-mini}"
+      Embeddings__Provider: "${EMBEDDINGS_PROVIDER:-Gemini}"
+      Embeddings__ApiKey: "${EMBEDDINGS_API_KEY:-}"
+      Embeddings__Model: "${EMBEDDINGS_MODEL:-gemini-embedding-001}"
     ports:
       - "8080:8080"
+    networks:
+      default:
+      librechat:
+        aliases:
+          - memory-mcp
 
 volumes:
   memory_mcp_db_data:
+
+networks:
+  librechat:
+    external: true

@@ -145,8 +145,43 @@ public sealed class MemoryEdgeRepositoryTests(PostgresFixture fixture)
 
         var repository = new MemoryEdgeRepository(db);
         var related = await repository.GetRelatedAsync(lonely.Id, maxHops: 2);
-
         related.Should().BeEmpty();
+    }
+
+
+    [Fact]
+    public async Task GetRelatedAsync_keeps_each_roots_neighbourhood_separate_when_given_several_roots()
+    {
+        using var db = fixture.CreateDbContext();
+        var spaceId = await SeedSpaceAsync(db);
+
+        var a = new Memory(spaceId, "a", embedding: null);
+        var b = new Memory(spaceId, "b", embedding: null);
+        var c = new Memory(spaceId, "c", embedding: null);
+        var x = new Memory(spaceId, "x", embedding: null);
+        var y = new Memory(spaceId, "y", embedding: null);
+        var lonely = new Memory(spaceId, "lonely", embedding: null);
+        db.Memories.AddRange(a, b, c, x, y, lonely);
+        await db.SaveChangesAsync();
+
+        db.MemoryEdges.AddRange(
+            new MemoryEdge(spaceId, a.Id, b.Id, RelationType.Updates),
+            new MemoryEdge(spaceId, b.Id, c.Id, RelationType.Extends),
+            new MemoryEdge(spaceId, x.Id, y.Id, RelationType.Derives));
+        await db.SaveChangesAsync();
+
+        var repository = new MemoryEdgeRepository(db);
+        var related = await repository.GetRelatedAsync([a.Id, x.Id, lonely.Id], maxHops: 2);
+
+        related.Keys.Should().BeEquivalentTo([a.Id, x.Id]);
+        related[a.Id].Select(r => r.MemoryId).Should().BeEquivalentTo([b.Id, c.Id]);
+        related[x.Id].Should().ContainSingle(r => r.MemoryId == y.Id && r.Direction == RelatedMemoryDirection.Outgoing);
+
+        // A root can also appear as someone else's neighbour: asking for a and c together, each sees the other
+        // two hops away without the result for one leaking into the other.
+        var both = await repository.GetRelatedAsync([a.Id, c.Id], maxHops: 2);
+        both[a.Id].Should().Contain(r => r.MemoryId == c.Id && r.Hops == 2);
+        both[c.Id].Should().Contain(r => r.MemoryId == a.Id && r.Hops == 2 && r.Direction == RelatedMemoryDirection.Incoming);
     }
 
     private static async Task<Guid> SeedSpaceAsync(Persistence.MemoryDbContext db)
@@ -155,5 +190,17 @@ public sealed class MemoryEdgeRepositoryTests(PostgresFixture fixture)
         db.Spaces.Add(space);
         await db.SaveChangesAsync();
         return space.Id;
+    }
+}
+
+internal static class MemoryEdgeRepositoryTestExtensions
+{
+    /// <summary>Single-root view of the batched <see cref="IMemoryEdgeRepository.GetRelatedAsync"/>, so the
+    /// per-memory tests above read the same as they did before the batch API existed.</summary>
+    public static async Task<IReadOnlyList<RelatedMemory>> GetRelatedAsync(
+        this IMemoryEdgeRepository repository, Guid rootMemoryId, int maxHops)
+    {
+        var related = await repository.GetRelatedAsync([rootMemoryId], maxHops);
+        return related.TryGetValue(rootMemoryId, out var items) ? items : [];
     }
 }

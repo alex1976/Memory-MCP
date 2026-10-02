@@ -31,8 +31,8 @@ public sealed class MemoryServiceTests
         // behavior unless a test overrides these stubs.
         _factExtractor.ExtractAsync(Arg.Any<string>(), Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ExtractedFact>());
-        _memoryGraphService.GetRelatedAsync(Arg.Any<Guid>(), Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
-            .Returns(Array.Empty<RelatedMemoryDto>());
+        _memoryGraphService.GetRelatedAsync(Arg.Any<IReadOnlyList<Guid>>(), Arg.Any<Guid>(), Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<Guid, IReadOnlyList<RelatedMemoryDto>>());
         _userRepository.GetByIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<UserSummary>());
     }
@@ -98,8 +98,12 @@ public sealed class MemoryServiceTests
             .Returns(new[] { hit });
 
         var relatedId = Guid.NewGuid();
-        _memoryGraphService.GetRelatedAsync(matchMemory.Id, SpaceId, 2, Arg.Any<CancellationToken>())
-            .Returns(new[] { new RelatedMemoryDto(relatedId, "related text", RelationType.Extends, 1) });
+        _memoryGraphService.GetRelatedAsync(
+                Arg.Is<IReadOnlyList<Guid>>(ids => ids != null && ids.SequenceEqual(new[] { matchMemory.Id })), SpaceId, 2, Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<Guid, IReadOnlyList<RelatedMemoryDto>>
+            {
+                [matchMemory.Id] = [new RelatedMemoryDto(relatedId, "related text", RelationType.Extends, 1)],
+            });
 
         var service = CreateService(new FakeAccessContext { Grants = [ReadOnlyGrant] });
 
@@ -410,7 +414,7 @@ public sealed class MemoryServiceTests
     }
 
     [Fact]
-    public async Task AddMemoryAsync_save_records_who_superseded_a_colleagues_memory_without_reassigning_its_author()
+    public async Task AddMemoryAsync_save_does_not_deactivate_a_colleagues_memory_and_reports_the_conflict()
     {
         var alice = NewWriter("Alice");
         var bob = NewWriter("Bob");
@@ -418,7 +422,7 @@ public sealed class MemoryServiceTests
         var contentEmbedding = new float[] { 0.3f };
         _embeddingProvider.EmbedAsync("Alex left Stripe", Arg.Any<CancellationToken>()).Returns(contentEmbedding);
 
-        // Bob's memory, above the forget threshold, superseded by Alice's save.
+        // Bob's memory, above the forget threshold, that Alice's save classifies as outdated.
         var bobsMemory = new Memory(SpaceId, "Alex is a PM at Stripe", contentEmbedding, createdByUserId: bob.Id);
         _memoryRepository.SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, category: null, Arg.Any<CancellationToken>())
             .Returns(new[] { new MemorySearchHit(bobsMemory, 0.9) });
@@ -434,13 +438,76 @@ public sealed class MemoryServiceTests
 
         var service = CreateService(AsWriter(alice));
 
+        var result = await service.AddMemoryAsync("Alex left Stripe", MemoryAction.Save, category: null, containerTag: null);
+
+        // Bob's memory is untouched — still active, still his, no trace of Alice on it — but the relation
+        // is recorded and the caller is told which memory is now in tension with what they saved.
+        bobsMemory.IsActive.Should().BeTrue();
+        bobsMemory.SupersededBy.Should().BeNull();
+        bobsMemory.UpdatedByUserId.Should().Be(bob.Id);
+        _memoryEdgeRepository.Received(1).Add(Arg.Is<MemoryEdge>(e =>
+            e != null && e.ToMemoryId == bobsMemory.Id && e.RelationType == RelationType.Updates));
+        result.ContestedMemoryIds.Should().Equal(bobsMemory.Id);
+        result.Message.Should().Contain("left active");
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_save_still_supersedes_the_callers_own_memory()
+    {
+        var alice = NewWriter("Alice");
+
+        var contentEmbedding = new float[] { 0.3f };
+        _embeddingProvider.EmbedAsync("Alex left Stripe", Arg.Any<CancellationToken>()).Returns(contentEmbedding);
+
+        var alicesMemory = new Memory(SpaceId, "Alex is a PM at Stripe", contentEmbedding, createdByUserId: alice.Id);
+        _memoryRepository.SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, category: null, Arg.Any<CancellationToken>())
+            .Returns(new[] { new MemorySearchHit(alicesMemory, 0.9) });
+
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new float[] { 0.4f } });
+        _factExtractor.ExtractAsync("Alex left Stripe", Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedFact("Alex is between jobs", Category: null,
+                    RelationsToExisting: [new ExtractedRelation(alicesMemory.Id, RelationType.Updates)]),
+            });
+
+        var service = CreateService(AsWriter(alice));
+
+        var result = await service.AddMemoryAsync("Alex left Stripe", MemoryAction.Save, category: null, containerTag: null);
+
+        alicesMemory.IsActive.Should().BeFalse();
+        result.ContestedMemoryIds.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AddMemoryAsync_save_supersedes_a_memory_with_no_recorded_author_and_stamps_the_caller()
+    {
+        var alice = NewWriter("Alice");
+
+        var contentEmbedding = new float[] { 0.3f };
+        _embeddingProvider.EmbedAsync("Alex left Stripe", Arg.Any<CancellationToken>()).Returns(contentEmbedding);
+
+        // Written before users existed: nobody to protect, so the policy does not apply.
+        var legacyMemory = new Memory(SpaceId, "Alex is a PM at Stripe", contentEmbedding, createdByUserId: null);
+        _memoryRepository.SearchAsync(SpaceId, contentEmbedding, ExtractionCandidateTopK, category: null, Arg.Any<CancellationToken>())
+            .Returns(new[] { new MemorySearchHit(legacyMemory, 0.9) });
+
+        _embeddingProvider.EmbedBatchAsync(Arg.Any<IReadOnlyList<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { new float[] { 0.4f } });
+        _factExtractor.ExtractAsync("Alex left Stripe", Arg.Any<IReadOnlyList<MemoryCandidateDto>>(), Arg.Any<CancellationToken>())
+            .Returns(new[]
+            {
+                new ExtractedFact("Alex is between jobs", Category: null,
+                    RelationsToExisting: [new ExtractedRelation(legacyMemory.Id, RelationType.Updates)]),
+            });
+
+        var service = CreateService(AsWriter(alice));
+
         await service.AddMemoryAsync("Alex left Stripe", MemoryAction.Save, category: null, containerTag: null);
 
-        // Authorship of the deactivated memory stays with Bob — Alice only appears as the member who
-        // deactivated it, which is the whole point of keeping the two ids apart.
-        bobsMemory.IsActive.Should().BeFalse();
-        bobsMemory.CreatedByUserId.Should().Be(bob.Id);
-        bobsMemory.UpdatedByUserId.Should().Be(alice.Id);
+        legacyMemory.IsActive.Should().BeFalse();
+        legacyMemory.UpdatedByUserId.Should().Be(alice.Id);
     }
 
     [Fact]

@@ -5,9 +5,9 @@ using Microsoft.EntityFrameworkCore;
 namespace MemoryMcp.Api;
 
 /// <summary>
-/// One-shot provisioning verbs — <c>--create-user</c>, <c>--create-api-key</c> and
-/// <c>--create-space</c> — run instead of the HTTP host, in the same spirit as <c>--seed</c> and
-/// <c>--migrate</c>.
+/// One-shot provisioning verbs — <c>--create-user</c>, <c>--create-api-key</c>, <c>--create-space</c>,
+/// <c>--revoke-key</c>, <c>--deactivate-user</c> and <c>--activate-user</c> — run instead of the HTTP
+/// host, in the same spirit as <c>--seed</c> and <c>--migrate</c>.
 /// </summary>
 /// <remarks>
 /// <para>These exist because <c>--seed</c> is a dev fixture, not provisioning (TODO T9): before this,
@@ -26,10 +26,14 @@ internal static class ProvisioningCommands
     private const string CreateUserVerb = "--create-user";
     private const string CreateApiKeyVerb = "--create-api-key";
     private const string CreateSpaceVerb = "--create-space";
+    private const string RevokeKeyVerb = "--revoke-key";
+    private const string DeactivateUserVerb = "--deactivate-user";
+    private const string ActivateUserVerb = "--activate-user";
 
     /// <summary>The verb present in <paramref name="args"/>, or <c>null</c> if this is a normal run.</summary>
     public static string? FindVerb(string[] args) =>
-        args.FirstOrDefault(a => a is CreateUserVerb or CreateApiKeyVerb or CreateSpaceVerb);
+        args.FirstOrDefault(a => a is CreateUserVerb or CreateApiKeyVerb or CreateSpaceVerb
+            or RevokeKeyVerb or DeactivateUserVerb or ActivateUserVerb);
 
     /// <summary>Runs <paramref name="verb"/> and returns the process exit code.</summary>
     public static async Task<int> RunAsync(string verb, string[] args, IServiceProvider services)
@@ -54,6 +58,9 @@ internal static class ProvisioningCommands
                 CreateUserVerb => await CreateUserAsync(db, options),
                 CreateApiKeyVerb => await CreateApiKeyAsync(db, options),
                 CreateSpaceVerb => await CreateSpaceAsync(db, options),
+                RevokeKeyVerb => await RevokeKeyAsync(db, options),
+                DeactivateUserVerb => await SetUserActiveAsync(db, options, active: false),
+                ActivateUserVerb => await SetUserActiveAsync(db, options, active: true),
                 _ => Fail($"Unknown provisioning verb '{verb}'."),
             };
         }
@@ -305,6 +312,107 @@ internal static class ProvisioningCommands
                 var what = !owner.IsActive ? $"{owner.Email} is deactivated" : "this key is revoked";
                 Console.WriteLine($"      WARNING: {what}, so the grant has no effect until that is undone.");
             }
+        }
+
+        return 0;
+    }
+
+    private static async Task<int> RevokeKeyAsync(MemoryDbContext db, Options options)
+    {
+        var spec = options.Required("key").Trim();
+
+        // Deliberately not an email: that would fan out to every credential a person holds, and revoking
+        // one laptop's key must never take the person's CI down with it. Offboarding a whole person is
+        // --deactivate-user.
+        List<ApiKey> matches;
+        if (Guid.TryParse(spec, out var keyId))
+        {
+            matches = await db.ApiKeys.Where(k => k.Id == keyId).ToListAsync();
+        }
+        else
+        {
+            // KeyPrefix stores the first 12 characters of the raw key, so either the prefix or the whole
+            // key can be pasted.
+            var prefix = spec.Length > 12 ? spec[..12] : spec;
+            matches = await db.ApiKeys.Where(k => k.KeyPrefix.StartsWith(prefix)).ToListAsync();
+        }
+
+        if (matches.Count == 0)
+        {
+            return Fail($"No API key matches '{spec}'. Expected a key id (GUID) or the key prefix shown when it was minted.");
+        }
+
+        var ownerIds = matches.Select(k => k.UserId).Distinct().ToList();
+        var owners = await db.Users.AsNoTracking().Where(u => ownerIds.Contains(u.Id)).ToDictionaryAsync(u => u.Id);
+
+        string Describe(ApiKey k) =>
+            $"{k.KeyPrefix}… ({owners[k.UserId].Email}{(k.Label is null ? "" : $", {k.Label}")})";
+
+        if (matches.Count > 1)
+        {
+            var listing = string.Join(Environment.NewLine, matches.Select(k => $"  {k.Id}  {Describe(k)}"));
+            return Fail($"'{spec}' matches {matches.Count} keys; pass the key id of the one to revoke:{Environment.NewLine}{listing}");
+        }
+
+        var key = matches[0];
+        if (!key.IsActive)
+        {
+            Console.WriteLine($"Key {Describe(key)} was already revoked on {key.RevokedAt:u}. Nothing to do.");
+            return 0;
+        }
+
+        key.Revoke();
+        await db.SaveChangesAsync();
+
+        // Authentication reads the key row on every request, so this takes effect on the very next call —
+        // sessions already open are not special, each request is authenticated again.
+        Console.WriteLine($"Revoked key {key.Id}");
+        Console.WriteLine($"  {Describe(key)}");
+        Console.WriteLine("  It is rejected from the next request on. Revocation cannot be undone; mint a new key with");
+        Console.WriteLine($"  {CreateApiKeyVerb} if the person still needs access.");
+        return 0;
+    }
+
+    private static async Task<int> SetUserActiveAsync(MemoryDbContext db, Options options, bool active)
+    {
+        var email = User.NormalizeEmail(options.Required("email"));
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
+        if (user is null)
+        {
+            return Fail($"No user with email '{email}'.");
+        }
+
+        if (user.IsActive == active)
+        {
+            Console.WriteLine($"{user.DisplayName} <{user.Email}> is already {(active ? "active" : "deactivated")}. Nothing to do.");
+            return 0;
+        }
+
+        var keys = await db.ApiKeys.AsNoTracking().Where(k => k.UserId == user.Id).ToListAsync();
+        var usable = keys.Count(k => k.IsActive);
+
+        if (active)
+        {
+            user.Activate();
+        }
+        else
+        {
+            user.Deactivate();
+        }
+
+        await db.SaveChangesAsync();
+
+        if (active)
+        {
+            Console.WriteLine($"Reactivated {user.DisplayName} <{user.Email}>");
+            Console.WriteLine($"  {usable} of their {keys.Count} key(s) work again; revoked keys stay revoked.");
+        }
+        else
+        {
+            Console.WriteLine($"Deactivated {user.DisplayName} <{user.Email}>");
+            Console.WriteLine($"  {usable} active key(s) are rejected from the next request on; the keys themselves are untouched.");
+            Console.WriteLine($"  Their memories and documents keep their name. Undo with {ActivateUserVerb} --email {user.Email}.");
         }
 
         return 0;

@@ -91,6 +91,11 @@ write attribution.
 - The two are kept apart because in a shared space they frequently differ: `UpdatedByUserId` is the
   record of who *deactivated* a memory, whether by an explicit `forget` or by a save whose extracted
   fact superseded it, while `CreatedByUserId` keeps naming the original author.
+- **A save never deactivates a colleague's memory.** When extraction classifies a new fact as `Updates`
+  an existing memory of someone else (and similarity clears the forget threshold), the `Updates` edge is
+  still recorded but both memories stay active; `add_memory` returns the other memories in
+  `contestedMemoryIds` and says so in its message. Superseding your own memory, or one written before
+  authorship was recorded, works as before. An explicit `forget` is unchanged.
 - Names are resolved in one batched lookup per call, so a page of results costs one extra query rather
   than one per row — and none at all when nothing in the result set is attributed.
 - Rows written before users existed keep NULL authorship and are reported as unattributed rather than
@@ -449,6 +454,26 @@ Provider and endpoint are validated at startup too: an unrecognized `Provider` i
 silently falling through to `api.openai.com`, and `AzureOpenAI` without an `Endpoint` fails immediately
 instead of at the first tool call.
 
+**Keep provider API keys out of `appsettings.Development.json`.** Store them with
+[user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets), which the app loads
+automatically in the Development environment (the project already has a `UserSecretsId`):
+
+```bash
+dotnet user-secrets set "Embeddings:ApiKey" "<key>" --project src/MemoryMcp.Api
+dotnet user-secrets set "Extraction:ApiKey" "<key>" --project src/MemoryMcp.Api
+```
+
+### Rate limiting and tool-call logs
+
+`/mcp` is rate limited per API key (requests presented without a key share one budget per client
+address); `/health` is not. Defaults are 300 requests per 60 seconds — one tool call is several HTTP
+requests — and can be changed under `RateLimiting` (`PermitLimit`, `WindowSeconds`, `Enabled`). Rejected
+requests get `429` with a `Retry-After` header. Behind a reverse proxy, key-less callers share the proxy's
+address unless forwarded headers are trusted.
+
+Every tool call writes one log line — tool, space, user id, role, outcome and duration — under the
+`MemoryMcp.ToolCalls` category. Arguments (memory text, documents) are never logged.
+
 Leaving the embedding provider **entirely unconfigured** is still supported: the server starts and all
 other tools work normally — only `add_memory`/`search_memory` return a tool error.
 
@@ -529,6 +554,19 @@ a `Reader` handed a `ReadWrite` grant is shown as `Read`, capped by their role.
 Each key has at most one default space, the one used when a request names none. `create-space.ps1`
 assigns it when the key has no other grant, and `-MakeDefault` moves it to the new space; the previous
 default is cleared, since two defaults would make the fallback depend on row order.
+
+### Offboarding and revocation
+
+```powershell
+./scripts/revoke-key.ps1 -Key mmcp_1a2b3c4                      # one credential, by id or printed prefix
+./scripts/deactivate-user.ps1 -Email alice@example.com          # a person, and with them every key they hold
+./scripts/deactivate-user.ps1 -Email alice@example.com -Reactivate
+```
+
+Both take effect from the next request, since every request is authenticated against the database.
+Revoking a key is permanent and touches only that key; deactivating a user is reversible, and a key
+revoked on its own stays revoked after the user is reactivated. A prefix that matches several keys is
+refused with the candidates listed. Memories and documents keep the departed person's name.
 
 ### 6. Start the server
 

@@ -9,3 +9,6 @@ appsettings.*.local.json
 
 # Local always-on server logs (scripts/start-server.ps1)
 .logs/
+
+# Provider API keys for docker-compose (see .env.example)
+.env

@@ -21,11 +21,13 @@ public interface IMemoryEdgeRepository
 {
     void Add(MemoryEdge edge);
 
-    /// <summary>Traverses edges connected to <paramref name="rootMemoryId"/> up to <paramref name="maxHops"/> hops,
-    /// in both directions (see <see cref="RelatedMemoryDirection"/>), since an edge's From/To reflects only which
-    /// memory was newer at the time it was created, not which one a caller will end up searching for.</summary>
-    Task<IReadOnlyList<RelatedMemory>> GetRelatedAsync(
-        Guid rootMemoryId, int maxHops, CancellationToken cancellationToken = default);
+    /// <summary>Traverses edges connected to each of <paramref name="rootMemoryIds"/> up to
+    /// <paramref name="maxHops"/> hops, in both directions (see <see cref="RelatedMemoryDirection"/>), since an
+    /// edge's From/To reflects only which memory was newer at the time it was created, not which one a caller
+    /// will end up searching for. All roots are traversed together, so the cost is the same number of round
+    /// trips whether one root or many is given. Roots with nothing related have no entry in the result.</summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlyList<RelatedMemory>>> GetRelatedAsync(
+        IReadOnlyList<Guid> rootMemoryIds, int maxHops, CancellationToken cancellationToken = default);
 
     /// <summary>All edges in a space, unbounded by any root memory — used by the memory-graph widget to
     /// render a whole-space view rather than a single memory's neighborhood.</summary>

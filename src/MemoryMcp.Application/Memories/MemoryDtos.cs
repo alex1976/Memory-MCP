@@ -47,7 +47,15 @@ public sealed record MemorySearchResultDto(
 
 public sealed record SearchMemoryResult(IReadOnlyList<MemorySearchResultDto> Matches, IReadOnlyList<MemorySummaryDto>? Profile);
 
-public sealed record AddMemoryResult(Guid? MemoryId, MemoryAction Action, int AffectedCount, string Message, IReadOnlyList<Guid>? MemoryIds = null);
+/// <summary><paramref name="ContestedMemoryIds"/> lists other members' memories that a save appears to make
+/// outdated but did not deactivate: superseding a colleague's fact needs a human decision, not an LLM's.</summary>
+public sealed record AddMemoryResult(
+    Guid? MemoryId,
+    MemoryAction Action,
+    int AffectedCount,
+    string Message,
+    IReadOnlyList<Guid>? MemoryIds = null,
+    IReadOnlyList<Guid>? ContestedMemoryIds = null);
 
 public sealed record GraphNodeDto(Guid Id, string Text, string? Category, bool IsActive, DateTimeOffset CreatedAt);
 

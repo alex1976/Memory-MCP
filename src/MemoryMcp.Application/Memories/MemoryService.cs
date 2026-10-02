@@ -68,12 +68,17 @@ public sealed class MemoryService(
                 CreatedBy: attribution.DisplayName(h.Memory.CreatedByUserId)))
             .ToList();
 
-        for (var i = 0; i < matches.Count && i < RelatedMemoriesTopMatches; i++)
+        // One batched traversal for all enriched matches rather than one per match.
+        var topIds = matches.Take(RelatedMemoriesTopMatches).Select(m => m.Id).ToList();
+        if (topIds.Count > 0)
         {
-            var related = await memoryGraphService.GetRelatedAsync(matches[i].Id, grant.SpaceId, RelatedMemoriesMaxHops, cancellationToken);
-            if (related.Count > 0)
+            var related = await memoryGraphService.GetRelatedAsync(topIds, grant.SpaceId, RelatedMemoriesMaxHops, cancellationToken);
+            for (var i = 0; i < topIds.Count; i++)
             {
-                matches[i] = matches[i] with { RelatedMemories = related };
+                if (related.TryGetValue(topIds[i], out var neighbours) && neighbours.Count > 0)
+                {
+                    matches[i] = matches[i] with { RelatedMemories = neighbours };
+                }
             }
         }
 
@@ -172,6 +177,7 @@ public sealed class MemoryService(
 
         var memoryIds = new List<Guid>();
         var forgottenCount = 0;
+        var contested = new List<Guid>();
         for (var i = 0; i < facts.Count; i++)
         {
             var fact = facts[i];
@@ -197,10 +203,21 @@ public sealed class MemoryService(
                 // relation to a loosely-related candidate can't silently erase it.
                 if (relation.RelationType == RelationType.Updates && existingHit.Score >= ForgetSimilarityThreshold)
                 {
-                    // The superseded memory may well be a colleague's, so stamp the member who caused the
-                    // deactivation onto it — otherwise a shared space loses all record of who erased what.
-                    existingHit.Memory.Forget(byUserId: userId, supersededBy: factMemory.Id);
-                    forgottenCount++;
+                    if (IsColleaguesMemory(existingHit.Memory, userId))
+                    {
+                        // Never silently erase another member's fact on an LLM's say-so: the Updates edge is
+                        // kept, both memories stay active, and the conflict is reported to the caller so a
+                        // human (or the author) can settle it with an explicit forget.
+                        if (!contested.Contains(existingHit.Memory.Id))
+                        {
+                            contested.Add(existingHit.Memory.Id);
+                        }
+                    }
+                    else
+                    {
+                        existingHit.Memory.Forget(byUserId: userId, supersededBy: factMemory.Id);
+                        forgottenCount++;
+                    }
                 }
             }
         }
@@ -211,8 +228,19 @@ public sealed class MemoryService(
             ? $"Saved {facts.Count} extracted memory(ies) ({forgottenCount} superseded existing memory(ies))."
             : $"Saved {facts.Count} extracted memory(ies).";
 
-        return new AddMemoryResult(memoryIds[0], MemoryAction.Save, facts.Count, message, memoryIds);
+        if (contested.Count > 0)
+        {
+            message += $" {contested.Count} existing memory(ies) written by other members appear to be outdated by this" +
+                " but were left active — review them and forget explicitly if they are wrong.";
+        }
+
+        return new AddMemoryResult(memoryIds[0], MemoryAction.Save, facts.Count, message, memoryIds, contested);
     }
+
+    // A memory with no recorded author (written before users existed) belongs to nobody in particular, so
+    // it is not protected: there is no colleague to surprise.
+    private static bool IsColleaguesMemory(Memory memory, Guid userId) =>
+        memory.CreatedByUserId is { } author && author != userId;
 
     // Batches embedding calls for extracted facts instead of one round trip per fact, and reuses the
     // already-computed content embedding for the common case where a fact's text is the content verbatim.

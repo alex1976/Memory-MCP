@@ -34,7 +34,13 @@ Related: `ApiKeyAuthenticationHandler` populates `CurrentAccessContext` as a sid
 implicit and fragile. Consider populating the context from a middleware or a factory that reads the
 authenticated principal instead.
 
-## 2. Fix the graph-enrichment N+1
+## 2. Fix the graph-enrichment N+1 — **DONE (2026-10-02)**
+
+Implemented the better version: `IMemoryEdgeRepository.GetRelatedAsync` and
+`IMemoryGraphService.GetRelatedAsync` take a list of roots, seed one CTE per direction from the id list
+and carry a `root_id` through, so enriching the top 3 matches costs 2 traversals + 1 `GetByIdsAsync`
+(3 round trips, down from 9). Roots with nothing related are simply absent from the result. The
+description below is kept as the record of the problem.
 
 **Where:** `src/MemoryMcp.Application/Memories/MemoryService.cs` (`SearchMemoryAsync`, the
 `RelatedMemoriesTopMatches` loop)
@@ -138,9 +144,11 @@ member's save **silently deactivates a colleague's memory**, with no record of w
   `ForgottenAt` was not added: `UpdatedAt` already dates it, and a memory's text is never edited in
   place, so the two would always be the same value.
   **The deactivation itself is still silent** — the rest of this item is unchanged.
-- Cross-author supersede policy: create the `Updates` edge but do **not** deactivate another author's
-  memory — leave it active and surface both as a conflict, or mark it contested. This is now
-  *expressible* (the save knows both the caller and the target's author) but not yet implemented.
+- ~~Cross-author supersede policy~~ **Done (2026-10-02):** a save still creates the `Updates` edge but
+  does **not** deactivate another author's memory; both stay active and `AddMemoryResult.ContestedMemoryIds`
+  (plus the message) tells the caller which memories are now in tension. Own memories and rows with no
+  recorded author are superseded as before. **Not done:** nothing yet *resolves* a contested pair beyond
+  an explicit forget — no "contested" flag on the memory, and search results do not mark the conflict.
 - Explicit forget of someone else's memory should need a higher access level (see T4) or an explicit
   confirmation step.
 - Optimistic concurrency: two agents updating the same fact in parallel currently overwrite each other
@@ -280,24 +288,34 @@ mutation rather than a creation and closes the gap that made `--create-api-key` 
 out access. Grants are resolved before anything is saved, so a typo cannot leave a space created with
 half its grants applied.
 
-Still missing, and still T9: **revoke key**, **change role**, **change access level**, **deactivate
-user** — every one of them a mutation of something that already exists, which is the harder half
-(revocation is what item **1**'s cache would have to evict). And it is a CLI, so it only serves whoever
-can reach the database host; a team still cannot onboard itself.
+**Update (2026-10-02): revoke and deactivate landed.** `--revoke-key` (by key id or printed prefix;
+never by email, so one laptop's revocation cannot take down the person's CI),
+`--deactivate-user` and its inverse `--activate-user`
+([revoke-key.ps1](scripts/revoke-key.ps1), [deactivate-user.ps1](scripts/deactivate-user.ps1)). They
+take effect on the next request because authentication reads the database every time — **if item 1's
+cache is added, these are the paths that must evict it.**
+
+Still missing, and still T9: **change role** and **change access level** — mutations of something that
+already exists (`User.ChangeRole` is in the domain; the grant has no mutator beyond `SetAsDefault`). And
+it is a CLI, so it only serves whoever can reach the database host; a team still cannot onboard itself.
 
 ## T10. Operational items that become blocking
 
 Already listed under *Smaller observations* as nice-to-haves; with N members they stop being optional:
 
-- **Rate limiting on `/mcp`** — public HTTPS endpoint guarded only by an API key.
+- ~~**Rate limiting on `/mcp`**~~ — **done (2026-10-02):** fixed window per API key (key-less callers share
+  one budget per address), configurable under `RateLimiting`. Open: behind Fly's proxy key-less callers
+  share the proxy's address until forwarded headers are trusted, and rotating random keys gets a fresh
+  budget each time.
 - **Two DB queries per request to authenticate** (item **1**) — multiplied by team traffic.
 - **Structured logging of tool calls** with space *and user* — without it, in a team, "who did what" is
-  unanswerable even in principle. The user is now available to log two ways: `ICurrentAccessContext.User`
+  unanswerable even in principle. **Done (2026-10-02):** `ToolCallLogging` writes one line per tool call
+  (tool, space, user id, role, outcome, duration; never arguments). The user was available two ways: `ICurrentAccessContext.User`
   inside the services, and the `user_id`/name/role claims the authentication handler puts on the
   principal (added so logging need not reach into the access context). Only the logging itself is left.
 - **Per-space quotas** — every write pays for embedding plus LLM extraction, and that cost now multiplies
   by the number of members.
-- **Graph-enrichment N+1** (item **2**) — 9 sequential round trips per search.
+- ~~**Graph-enrichment N+1** (item **2**)~~ — done, 3 round trips per search.
 
 ## Suggested phasing
 
@@ -332,13 +350,11 @@ Already listed under *Smaller observations* as nice-to-haves; with N members the
 - **Filtered vector search can under-return.** `SpaceId`/`IsActive`/`Category` are applied as post-index
   filters, so a highly selective filter over a large corpus can yield fewer than `topK` rows. pgvector
   0.8.0+ iterative index scans address this and are not enabled.
-- **No rate limiting on `/mcp`**, which is a public HTTPS endpoint guarded only by an API key. ASP.NET
-  Core's built-in rate limiter would bound brute-force and abuse.
+- ~~**No rate limiting on `/mcp`**~~ — done, see T10.
 - **No request size limit** on `create_document`, which accepts base64-encoded PDF bytes inline.
-- **No structured logging or tracing of tool calls** — there is currently no way to see which tool was
-  invoked, for which space, or how long it took.
+- ~~**No structured logging of tool calls**~~ — done, see T10. Tracing is still absent.
 - **`ApiKeyHasher` uses unsalted SHA-256, and that is correct here** — keys are 128 bits of randomness, so
   there is no dictionary attack to salt against, and bcrypt/argon2 would add latency to every request.
-  Worth a code comment so nobody "fixes" it later.
-- **`appsettings.Development.json` holds a live Gemini API key in plaintext.** It is gitignored, so it has
-  not leaked to the repository, but consider moving it to user secrets (`dotnet user-secrets`).
+  The code comment is now in place (`ApiKeyHasher`).
+- ~~**`appsettings.Development.json` held a live Gemini API key in plaintext.**~~ **Done (2026-10-02):**
+  moved to user secrets. Rotate the key if that file was ever shared or backed up.

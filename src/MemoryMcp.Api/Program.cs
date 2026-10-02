@@ -43,6 +43,7 @@ builder.Services
 builder.Services.AddAuthorization();
 
 builder.Services.AddHealthChecks().AddCheck<DatabaseHealthCheck>("database");
+builder.Services.AddMemoryMcpRateLimiting(builder.Configuration);
 
 AddMemoryMcpServer(builder.Services, mcp => mcp.WithHttpTransport());
 
@@ -60,6 +61,9 @@ if (args.Contains("--seed"))
     return;
 }
 
+// Before authentication so a flood of requests is shed without costing the two queries each one makes
+// to authenticate. Applied to /mcp only (RequireRateLimiting below): /health stays unthrottled for probes.
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -74,7 +78,7 @@ app.MapHealthChecks("/health", new HealthCheckOptions
     },
 });
 
-app.MapMcp("/mcp").RequireAuthorization();
+app.MapMcp("/mcp").RequireAuthorization().RequireRateLimiting(RateLimiting.McpPolicy);
 
 app.Run();
 
@@ -98,6 +102,7 @@ static void AddMemoryMcpServer(IServiceCollection services, Func<IMcpServerBuild
     });
 
     withTransport(mcp)
+        .WithRequestFilters(filters => filters.AddCallToolFilter(ToolCallLogging.Filter))
         .WithToolsFromAssembly()
         .WithResourcesFromAssembly()
         .WithPromptsFromAssembly()
