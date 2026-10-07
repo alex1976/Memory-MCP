@@ -2,6 +2,8 @@
 
 ![Memory-MCP project overview](docs/project-overview.jpg)
 
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/alex1976/memory-mcp)
+
 Remote MCP (Model Context Protocol) server for storing, retrieving, and semantically searching
 "memories" on behalf of AI agents, organized into multi-tenant **spaces** and protected by API Key.
 A space can be shared by several **users** — each a `Writer` or a `Reader`, each attributed on what
