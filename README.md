@@ -3,7 +3,7 @@
 ![Memory-MCP project overview](docs/project-overview.jpg)
 
 [![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/alex1976/memory-mcp)
-[![GitHub release](https://img.shields.io/github/v/release/alex1976/Memory-MCP)](https://github.com/alex1976/Memory-MCP/releases)
+[![GitHub release](https://img.shields.io/github/v/release/alex1976/Memory-MCP)](https://github.com/alex1976/Memory-MCP/releases/tag/release)
 
 Remote MCP (Model Context Protocol) server for storing, retrieving, and semantically searching
 "memories" on behalf of AI agents, organized into multi-tenant **spaces** and protected by API Key.
